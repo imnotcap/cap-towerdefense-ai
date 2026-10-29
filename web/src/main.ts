@@ -8,7 +8,8 @@ import { Profile } from './meta/profile';
 import { attachBenchHud } from './stage/bench-hud';
 import { DECOR, GROUND_TILES, PATH_TILES } from './stage/map';
 import { AMMO_FOR_WEAPON, WEAPON_TYPES } from './stage/sim';
-import { ENEMY_MODELS, StageScreen, TOWER_STACK } from './stage/stage-screen';
+import { ENEMY_MODELS, STAGE_EXTRA_MODELS, StageScreen } from './stage/stage-screen';
+import { TOWER_MODELS } from './stage/towers';
 import { hideLoading, setLoadingMessage, setLoadingProgress } from './ui/dom';
 import { WORLD_MODELS, WorldScreen } from './world/world-screen';
 
@@ -18,8 +19,8 @@ async function main() {
   const app = await App.create({ forceWebGL: params.has('webgl'), shadows: !params.has('noshadow') });
 
   const names = new Set([
-    ...GROUND_TILES, ...PATH_TILES, ...DECOR, ...ENEMY_MODELS, ...TOWER_STACK, ...WEAPON_TYPES, ...AMMO_FOR_WEAPON,
-    'weapon-ammo-boulder', ...WORLD_MODELS,
+    ...GROUND_TILES, ...PATH_TILES, ...DECOR, ...ENEMY_MODELS, ...TOWER_MODELS, ...WEAPON_TYPES, ...AMMO_FOR_WEAPON,
+    ...STAGE_EXTRA_MODELS, ...WORLD_MODELS,
   ]);
   const models = await loadModels(Themes.withVariants([...names], SNOW_VARIANTS), setLoadingProgress);
   const themes = new Themes(models);

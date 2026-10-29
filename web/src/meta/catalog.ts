@@ -23,6 +23,8 @@ export interface StageDef {
   layout: number;
   seed: number;
   waves: WaveConfig;
+  /** Gold at the start of the battle, before the War Chest perk. */
+  startGold: number;
   hpScale: number;
   speedScale: number;
 }
@@ -56,8 +58,9 @@ export const STAGES: readonly StageDef[] = AREAS.flatMap((area, a) =>
       name,
       layout: (order * 3 + a) % 5,
       seed: 101 + order * 17,
-      waves: { waves: 5 + a + (index >> 1), firstWave: 10 + order * 2, spawnInterval: Math.max(0.25, 0.7 - order * 0.018), wavePause: 4 },
-      hpScale: 1 + order * 0.16,
+      waves: { waves: 5 + a + (index >> 1), firstWave: Math.round(8 + order * 0.8), spawnInterval: Math.max(0.25, 0.7 - order * 0.018), wavePause: 12 },
+      startGold: 200 + order * 50,
+      hpScale: 1 + order * 0.22 + order * order * 0.008,
       speedScale: 1 + a * 0.06,
     };
   }),
@@ -71,6 +74,8 @@ export const DIFFICULTY: Record<Difficulty, { label: string; hp: number; reward:
 };
 
 export const BASE_LIVES = 20;
+export const WAR_CHEST_STEP = 30;
+export const SELL_REFUND = 0.7;
 
 /** Stars from lives left: all lives → 3, at least half → 2, otherwise 1. */
 export function starsFor(livesLeft: number, maxLives: number): number {
@@ -81,7 +86,7 @@ export function starsFor(livesLeft: number, maxLives: number): number {
 
 /** Crystals paid for clearing a stage (before the Bounty Hunter bonus). */
 export function stageReward(stage: StageDef, stars: number, difficulty: Difficulty, firstClear: boolean): number {
-  const base = 30 + stage.order * 6 + stars * 15;
+  const base = 50 + stage.order * 10 + stars * 22;
   return Math.round(base * DIFFICULTY[difficulty].reward * (firstClear ? 1.5 : 1));
 }
 
@@ -142,6 +147,18 @@ export const UPGRADES: readonly UpgradeDef[] = [
   {
     id: 'sharpshooter', tab: 'commander', group: 'Commander', name: 'Sharpshooter', icon: PREVIEW + 'weapon-ammo-arrow.png',
     maxLevel: 5, effect: (l) => `${l * 4}% chance of double damage`, cost: growth(55, 1.6),
+  },
+  {
+    id: 'war-chest', tab: 'commander', group: 'Commander', name: 'War Chest', icon: PREVIEW + 'detail-crystal.png',
+    maxLevel: 5, effect: (l) => `+${l * WAR_CHEST_STEP} starting gold`, cost: growth(45, 1.6),
+  },
+  {
+    id: 'engineering', tab: 'commander', group: 'Commander', name: 'Engineering', icon: PREVIEW + 'wood-structure.png',
+    maxLevel: 5, effect: (l) => `\u2212${l * 4}% build & upgrade cost`, cost: growth(70, 1.65),
+  },
+  {
+    id: 'salvage', tab: 'commander', group: 'Commander', name: 'Salvage Crew', icon: PREVIEW + 'wood-structure-part.png',
+    maxLevel: 3, effect: (l) => `Sell for ${Math.round((SELL_REFUND + l * 0.08) * 100)}% of cost`, cost: growth(40, 1.7),
   },
   {
     id: 'quick-hands', tab: 'commander', group: 'Commander', name: 'Quick Hands', icon: PREVIEW + 'tower-round-crystals.png',

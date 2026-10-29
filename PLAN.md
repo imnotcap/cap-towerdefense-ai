@@ -100,7 +100,7 @@ tests), rendering reads sim state only.
 |---|---|---|
 | 0. Spike (1 wk) | Rust+Bevy→WASM page with instanced animated mesh, 1k enemies | 60 fps on mid laptop; gz size measured; stack confirmed. **Status:** TS/three.js baseline done (`web/`, see its README); Rust spike blocked on crates.io access; GPU numbers pending real hardware |
 | 1. Core sim (2 wk) | `td_core`: grid, flow-field, waves, 3 towers, tests; debug top-view | Headless sim test clears a sample wave set |
-| 2. Stage vertical slice (3 wk) | Greenhollow stage 1 fully playable with PBR models, animations, HUD, SFX | Fun, stable 60 fps, <10 MB initial |
+| 2. Stage vertical slice (3 wk) | Greenhollow stage 1 fully playable with PBR models, animations, HUD, SFX | Fun, stable 60 fps, <10 MB initial. **Status:** build/upgrade/sell, targeting, gold economy, wave calling and a balance bot are in `web/` |
 | 3. World map (2 wk) | 3D map, area fly-to, stage select, save/progress, fog-locked areas | Navigate all 5 areas (placeholder stages). **Status:** built in `web/` – themed island, stage cards, cloud-locked areas, crystal economy + Armory shop (tower/commander/ability upgrades), local save |
 | 4. Content (6 wk) | 5 areas × 5 stages, 8 towers, 12 enemies, 5 bosses, abilities | All stages beatable on each difficulty; balance pass |
 | 5. Polish (3 wk) | Particles, post-fx, quality presets, audio, tutorial, settings, touch controls | Lighthouse/perf budgets met; playtests |

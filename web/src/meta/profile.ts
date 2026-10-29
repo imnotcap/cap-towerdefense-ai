@@ -1,6 +1,7 @@
 import { BASE_WEAPON_STATS, type WeaponStats } from '../stage/sim';
 import {
-  BASE_LIVES, FREEZE_COOLDOWN, METEOR_COOLDOWN, STAGES, TOWER_DAMAGE_STEP, TOWER_RANGE_STEP, TOWER_RATE_STEP,
+  BASE_LIVES, FREEZE_COOLDOWN, METEOR_COOLDOWN, SELL_REFUND, STAGES, TOWER_DAMAGE_STEP, TOWER_RANGE_STEP,
+  TOWER_RATE_STEP, WAR_CHEST_STEP,
   freezeSeconds, meteorDamage, type AreaDef, type StageDef, type UpgradeDef,
 } from './catalog';
 
@@ -130,6 +131,9 @@ export class Profile {
     return {
       weapons,
       lives: BASE_LIVES + lv('fortified-base') * 2,
+      bonusGold: lv('war-chest') * WAR_CHEST_STEP,
+      costScale: 1 - lv('engineering') * 0.04,
+      sellRefund: SELL_REFUND + lv('salvage') * 0.08,
       crystalBonus: lv('bounty-hunter') * 0.1,
       critChance: lv('sharpshooter') * 0.04,
       meteor: lv('meteor') > 0 ? { damage: meteorDamage(lv('meteor')), radius: 1.8, cooldown: METEOR_COOLDOWN * cooldownScale } : null,
@@ -141,6 +145,10 @@ export class Profile {
 export interface Modifiers {
   weapons: WeaponStats[];
   lives: number;
+  /** Extra starting gold on top of the stage's own. */
+  bonusGold: number;
+  costScale: number;
+  sellRefund: number;
   crystalBonus: number;
   critChance: number;
   meteor: { damage: number; radius: number; cooldown: number } | null;

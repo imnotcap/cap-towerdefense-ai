@@ -27,7 +27,7 @@ export function attachBenchHud(app: App, stage: StageScreen, ui: HTMLElement, op
 
   const { perf, sim } = stage;
   set('Backend', app.backend, app.backend === 'WebGPU' ? 'good' : 'warn');
-  set('Towers', String(sim.towerCount));
+  set('Towers', String(sim.padCount));
   set('Static tris', `${(perf.staticTris / 1000).toFixed(1)}k (−${Math.round((1 - perf.staticTris / perf.staticTrisBefore) * 100)}%) in ${perf.staticMeshes} meshes`);
 
   const row = h('div', { class: 'row' });

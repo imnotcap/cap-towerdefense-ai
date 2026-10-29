@@ -39,7 +39,7 @@ export function openShop(root: HTMLElement, profile: Profile): void {
     }
 
     const buy = cost === null
-      ? h('button', { class: 'btn small grey', disabled: true }, 'Max')
+      ? h('button', { class: 'btn small grey', disabled: true }, 'Complete')
       : button(h('span', { style: 'display: contents' }, formatNumber(cost), crystal()), () => {
         if (profile.buy(u)) {
           sfx('switch-a');

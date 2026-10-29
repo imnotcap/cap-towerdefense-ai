@@ -38,14 +38,28 @@ Greenhollow, Sunscar Dunes, Frostpeak, Emberforge and Umbral Spire.
 | Tab | Upgrades |
 |---|---|
 | Towers | Cannon, Ballista and Turret each have Damage (+12%/lvl), Range (+6%/lvl) and Fire rate (+7%/lvl), 5 levels each |
-| Commander | Fortified Base (+2 lives), Bounty Hunter (+10% crystals), Sharpshooter (+4% double-damage chance), Quick Hands (−8% ability cooldown) |
+| Commander | Fortified Base (+2 lives), Bounty Hunter (+10% crystals), Sharpshooter (+4% double-damage chance), War Chest (+30 starting gold), Engineering (−4% build/upgrade cost), Salvage Crew (+8% sell refund), Quick Hands (−8% ability cooldown) |
 | Abilities | Meteor Strike (tap the map for area damage) and Deep Freeze (slows every enemy): unlock, then 3 power levels |
 
-**Stage.** The towers are pre-placed on a themed map. Enemies come in waves, and
-lives are lost when they reach the base. The HUD shows lives and the current wave,
-and has a 1×/2× speed toggle, a retreat button and the ability buttons. The results
-screen gives stars by lives left (all lives = 3★, at least half = 2★, otherwise 1★)
-and crystals, with a 1.5× bonus on a first clear.
+**Stage (battle).** You start with gold and empty build pads (the yellow brackets).
+The first wave waits until you press **Start wave**.
+
+- **Build:** tap a pad and pick Cannon (100), Ballista (80) or Turret (65). Hotkeys
+  are 1, 2 and 3. Hovering an option previews its range on the map. New towers rise
+  out of the ground in a puff of dust.
+- **Upgrade:** tap a tower for its panel. It shows current → next damage, range and
+  fire rate. Towers go up to level 3, and each level changes the tower's model
+  stack. Hotkey: U.
+- **Sell:** gives back 70% of everything spent on the tower (more with Salvage
+  Crew). Hotkey: S.
+- **Targeting:** First, Last, Strong (most health) or Close, set per tower.
+- **Economy:** gold comes from kills (4–14 by enemy type), a bonus once a wave
+  finishes spawning, and calling the next wave early (+2 gold per second skipped).
+  Waves also start on their own after a 12 s pause. Space calls the wave.
+- **Also on screen:** a 1×/2× speed toggle, Retreat, the Meteor (tap the map) and
+  Freeze abilities if you own them, and a results screen with stars and crystals.
+- Enemies get 10% more health with each wave. Starting gold and enemy health both
+  scale along the campaign.
 
 Progress (crystals, best stars per stage, upgrade levels) is saved in
 `localStorage`. If storage is blocked, the game still runs with an in-memory profile.
@@ -59,7 +73,7 @@ src/
   engine/              app/screen loop, GLB loading, instancing, static batching, tile helpers, themes
   meta/                catalog (areas, stages, shop items) and profile (save + upgrade modifiers)
   world/               world map screen, layout generator, shop modal
-  stage/               stage screen, map builder, fixed-step simulation, bench HUD
+  stage/               stage screen, tower popover, tower rules, map builder, fixed-step simulation, bench HUD
   ui/                  theme.css (Kenney UI Pack) and DOM helpers
 ```
 
@@ -81,6 +95,11 @@ CPU benchmark (`npm run bench:sim`, Node 22, 4-core cloud VM):
 | 1,000 | 0.16 | 0.04 | 1.2% |
 | 5,000 | 0.66 | 0.16 | 4.9% |
 | 10,000 | 1.48 | 0.36 | 11.0% |
+
+Balance check: `npm run bench:balance` has a simple bot play sample stages with a
+given share of the shop bought. Right now each area is beatable with the upgrades a
+player can afford by then, and the finale is a deliberate wall: the bot (which never
+uses abilities) wins it with the full shop.
 
 GPU frame rates still need real hardware; the cloud VM only has software
 rendering. To measure on a machine with a GPU, first build:

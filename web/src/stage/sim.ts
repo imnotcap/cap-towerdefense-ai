@@ -1,4 +1,7 @@
 import { MAP_H, MAP_W, cellToWorld, samplePath, type GameMap } from './map';
+import {
+  LEVEL_DAMAGE, LEVEL_RANGE, LEVEL_RATE, MAX_TOWER_LEVEL, TOWER_KINDS, buildCost, upgradeCost, type Targeting, type TowerKind,
+} from './towers';
 
 /**
  * Fixed-step simulation, struct-of-arrays, zero allocations per tick.
@@ -7,8 +10,8 @@ import { MAP_H, MAP_W, cellToWorld, samplePath, type GameMap } from './map';
 export const TICK = 1 / 60;
 
 export const ENEMY_TYPES = 4;
-export const WEAPON_TYPES = ['weapon-cannon', 'weapon-ballista', 'weapon-turret'] as const;
-export const AMMO_FOR_WEAPON = ['weapon-ammo-cannonball', 'weapon-ammo-arrow', 'weapon-ammo-bullet'] as const;
+export const WEAPON_TYPES = TOWER_KINDS.map((k) => k.weapon);
+export const AMMO_FOR_WEAPON = TOWER_KINDS.map((k) => k.ammo);
 
 export interface WeaponStats {
   range: number;
@@ -27,6 +30,8 @@ export const BASE_WEAPON_STATS: readonly WeaponStats[] = [
 ];
 const ENEMY_HP = [60, 90, 140, 220];
 const ENEMY_SPEED = [1.6, 1.3, 1.0, 0.8];
+/** Gold per kill by enemy type. */
+export const ENEMY_BOUNTY = [4, 6, 9, 14];
 
 export interface WaveConfig {
   waves: number;
@@ -34,21 +39,34 @@ export interface WaveConfig {
   firstWave: number;
   /** Seconds between spawns within a wave. */
   spawnInterval: number;
-  /** Seconds of calm between waves. */
+  /** Seconds of calm between waves before the next one starts on its own. */
   wavePause: number;
 }
 
 export interface SimConfig {
+  /** Per tower kind, after shop upgrades and before in-battle levels. */
   weapons: readonly WeaponStats[];
   critChance: number;
   hpScale: number;
   speedScale: number;
   lives: number;
+  startGold: number;
+  /** Multiplier on build and upgrade prices. */
+  costScale: number;
+  /** Fraction of spent gold returned when selling. */
+  sellRefund: number;
+  /** Height of the weapon mount for a tower kind/level (visual, used as the projectile origin). */
+  mountY: (kind: TowerKind, level: number) => number;
   /** Null runs the endless stress test: a fixed population that recycles at the base. */
   waves: WaveConfig | null;
+  /** Fill every pad with a tower up front (stress test). */
+  prebuilt?: boolean;
 }
 
 export type SimStatus = 'running' | 'won' | 'lost';
+
+/** Something the renderer may want to react to (build dust, sounds). */
+export type SimEvent = { type: 'built' | 'upgraded' | 'sold'; pad: number };
 
 const MAX_PROJECTILES = 4096;
 export const MAX_PARTICLES = 8192;
@@ -56,6 +74,15 @@ const HASH_CELL = 1;
 const METEOR_FALL_TIME = 0.7;
 const METEOR_HEIGHT = 9;
 const FREEZE_SLOW = 0.35;
+/** Each wave's enemies are this much tougher than the previous wave's. */
+const WAVE_HP_GROWTH = 0.1;
+/** Gold per second of pause skipped by calling the next wave early. */
+const EARLY_CALL_GOLD = 2;
+
+export const PARTICLE_EMBER = 0;
+export const PARTICLE_GOLD = 1;
+export const PARTICLE_ICE = 2;
+export const PARTICLE_DUST = 3;
 
 export class Sim {
   // Enemies. Slots [0, n) may be inactive; inactive slots sit on a free list in wave mode.
@@ -74,13 +101,24 @@ export class Sim {
   private freeCount = 0;
   activeEnemies = 0;
 
-  // Towers
+  // Towers: one slot per build pad. tKind -1 = empty pad.
   readonly tX: Float32Array;
   readonly tZ: Float32Array;
-  readonly tWeapon: Uint8Array;
+  readonly tKind: Int8Array;
+  readonly tLevel: Uint8Array;
+  readonly tTargeting: Uint8Array;
+  readonly tSpent: Float32Array;
   readonly tYaw: Float32Array;
   readonly tCool: Float32Array;
   readonly tRecoil: Float32Array;
+  // Effective stats, cached on build/upgrade.
+  readonly tRange: Float32Array;
+  readonly tDamage: Float32Array;
+  readonly tCooldown: Float32Array;
+  readonly tMountY: Float32Array;
+  /** Bumped whenever any tower is built, upgraded or sold. */
+  towerVersion = 0;
+  readonly events: SimEvent[] = [];
 
   // Projectiles
   pCount = 0;
@@ -91,8 +129,9 @@ export class Sim {
   readonly pTarget = new Int32Array(MAX_PROJECTILES);
   readonly pGen = new Uint32Array(MAX_PROJECTILES);
   readonly pKind = new Uint8Array(MAX_PROJECTILES);
+  readonly pDamage = new Float32Array(MAX_PROJECTILES);
 
-  // Particles (ring buffer); qHue: 0 = ember, 1 = gold (crit), 2 = ice.
+  // Particles (ring buffer); qHue picks the colour (PARTICLE_*).
   readonly qX = new Float32Array(MAX_PARTICLES);
   readonly qY = new Float32Array(MAX_PARTICLES);
   readonly qZ = new Float32Array(MAX_PARTICLES);
@@ -114,12 +153,15 @@ export class Sim {
 
   // Waves
   wave = 0;
+  /** Wave mode starts paused so the player can build; `callWave` begins the first wave. */
+  waitingForStart: boolean;
   private toSpawn = 0;
   private spawnTimer = 0;
-  private pauseTimer = 0;
+  pauseTimer = 0;
 
   status: SimStatus = 'running';
   lives: number;
+  gold: number;
   kills = 0;
   leaked = 0;
   private rng = 12345;
@@ -139,26 +181,37 @@ export class Sim {
     this.cellItems = new Int32Array(capacity);
     this.cellOf = new Int32Array(capacity);
     this.lives = config.lives;
+    this.gold = config.startGold;
 
-    const pads = map.towerPads;
-    this.tX = new Float32Array(pads.length);
-    this.tZ = new Float32Array(pads.length);
-    this.tWeapon = new Uint8Array(pads.length);
-    this.tYaw = new Float32Array(pads.length);
-    this.tCool = new Float32Array(pads.length);
-    this.tRecoil = new Float32Array(pads.length);
-    pads.forEach(([cx, cy], i) => {
+    const pads = map.towerPads.length;
+    this.tX = new Float32Array(pads);
+    this.tZ = new Float32Array(pads);
+    this.tKind = new Int8Array(pads).fill(-1);
+    this.tLevel = new Uint8Array(pads);
+    this.tTargeting = new Uint8Array(pads);
+    this.tSpent = new Float32Array(pads);
+    this.tYaw = new Float32Array(pads);
+    this.tCool = new Float32Array(pads);
+    this.tRecoil = new Float32Array(pads);
+    this.tRange = new Float32Array(pads);
+    this.tDamage = new Float32Array(pads);
+    this.tCooldown = new Float32Array(pads);
+    this.tMountY = new Float32Array(pads);
+    map.towerPads.forEach(([cx, cy], i) => {
       const [x, z] = cellToWorld(cx, cy);
       this.tX[i] = x;
       this.tZ[i] = z;
-      this.tWeapon[i] = i % WEAPON_TYPES.length;
-      this.tCool[i] = this.rand() * config.weapons[this.tWeapon[i]].cooldown;
+      this.tYaw[i] = this.rand() * Math.PI * 2;
     });
+    if (config.prebuilt) {
+      for (let i = 0; i < pads; i++) this.place(i, (i % TOWER_KINDS.length) as TowerKind);
+      this.events.length = 0;
+    }
 
-    if (config.waves) this.startWave(0);
+    this.waitingForStart = config.waves !== null;
   }
 
-  get towerCount(): number {
+  get padCount(): number {
     return this.tX.length;
   }
 
@@ -176,6 +229,93 @@ export class Sim {
     return (x >>> 0) / 4294967296;
   }
 
+  // --- Towers ---
+
+  buildCost(kind: TowerKind): number {
+    return buildCost(kind, this.config.costScale);
+  }
+
+  /** Gold to upgrade the tower on `pad`, or null at max level / empty pad. */
+  upgradeCost(pad: number): number | null {
+    const kind = this.tKind[pad];
+    if (kind < 0 || this.tLevel[pad] >= MAX_TOWER_LEVEL) return null;
+    return upgradeCost(kind as TowerKind, this.tLevel[pad], this.config.costScale);
+  }
+
+  sellValue(pad: number): number {
+    return Math.floor(this.tSpent[pad] * this.config.sellRefund);
+  }
+
+  /** Effective stats a tower would have at `level`. */
+  statsFor(kind: TowerKind, level: number): { damage: number; range: number; cooldown: number; splash: number } {
+    const w = this.config.weapons[kind];
+    return {
+      damage: w.damage * LEVEL_DAMAGE[level - 1],
+      range: w.range * LEVEL_RANGE[level - 1],
+      cooldown: w.cooldown / LEVEL_RATE[level - 1],
+      splash: w.splash,
+    };
+  }
+
+  build(pad: number, kind: TowerKind): boolean {
+    const cost = this.buildCost(kind);
+    if (this.tKind[pad] >= 0 || cost > this.gold || this.status !== 'running') return false;
+    this.gold -= cost;
+    this.place(pad, kind);
+    this.tSpent[pad] = cost;
+    return true;
+  }
+
+  private place(pad: number, kind: TowerKind): void {
+    this.tKind[pad] = kind;
+    this.tLevel[pad] = 1;
+    this.tTargeting[pad] = 0;
+    this.tCool[pad] = 0.3;
+    this.applyStats(pad);
+    this.burst(this.tX[pad], 0.3, this.tZ[pad], 18, 1.6, PARTICLE_DUST);
+    this.events.push({ type: 'built', pad });
+  }
+
+  upgrade(pad: number): boolean {
+    const cost = this.upgradeCost(pad);
+    if (cost === null || cost > this.gold || this.status !== 'running') return false;
+    this.gold -= cost;
+    this.tSpent[pad] += cost;
+    this.tLevel[pad]++;
+    this.applyStats(pad);
+    this.burst(this.tX[pad], this.tMountY[pad], this.tZ[pad], 24, 2, PARTICLE_GOLD);
+    this.events.push({ type: 'upgraded', pad });
+    return true;
+  }
+
+  sell(pad: number): boolean {
+    if (this.tKind[pad] < 0 || this.status !== 'running') return false;
+    this.gold += this.sellValue(pad);
+    this.tKind[pad] = -1;
+    this.tLevel[pad] = 0;
+    this.tSpent[pad] = 0;
+    this.burst(this.tX[pad], 0.4, this.tZ[pad], 22, 1.8, PARTICLE_DUST);
+    this.towerVersion++;
+    this.events.push({ type: 'sold', pad });
+    return true;
+  }
+
+  setTargeting(pad: number, mode: Targeting): void {
+    this.tTargeting[pad] = mode;
+  }
+
+  private applyStats(pad: number): void {
+    const kind = this.tKind[pad] as TowerKind;
+    const s = this.statsFor(kind, this.tLevel[pad]);
+    this.tRange[pad] = s.range;
+    this.tDamage[pad] = s.damage;
+    this.tCooldown[pad] = s.cooldown;
+    this.tMountY[pad] = this.config.mountY(kind, this.tLevel[pad]);
+    this.towerVersion++;
+  }
+
+  // --- Enemies & waves ---
+
   /** Endless mode only: shrinking keeps the first n enemies; growing spreads new ones along the path. */
   setEnemyCount(n: number): void {
     n = Math.min(n, this.capacity);
@@ -190,7 +330,7 @@ export class Sim {
     this.eType[i] = type;
     this.eDist[i] = dist;
     this.eLane[i] = (this.rand() - 0.5) * 0.6;
-    this.eHp[i] = ENEMY_HP[type] * this.config.hpScale;
+    this.eHp[i] = ENEMY_HP[type] * this.config.hpScale * (1 + this.wave * WAVE_HP_GROWTH);
     this.eGen[i]++;
   }
 
@@ -214,12 +354,36 @@ export class Sim {
     this.spawnTimer = 0;
   }
 
+  /** True while the next wave can be called (before the first, or during a pause). */
+  get canCallWave(): boolean {
+    if (!this.config.waves || this.status !== 'running') return false;
+    return this.waitingForStart || (this.toSpawn === 0 && this.wave < this.totalWaves - 1);
+  }
+
+  /** Gold for calling the next wave now instead of waiting out the pause. */
+  get earlyCallBonus(): number {
+    return this.waitingForStart ? 0 : Math.ceil(Math.max(0, this.pauseTimer) * EARLY_CALL_GOLD);
+  }
+
+  /** Starts the first wave, or the next one early for bonus gold. */
+  callWave(): boolean {
+    if (!this.canCallWave) return false;
+    if (this.waitingForStart) {
+      this.waitingForStart = false;
+      this.startWave(0);
+    } else {
+      this.gold += this.earlyCallBonus;
+      this.startWave(this.wave + 1);
+    }
+    return true;
+  }
+
   step(): void {
     if (this.status !== 'running') {
       this.updateParticles();
       return;
     }
-    if (this.config.waves) this.updateWaves();
+    if (this.config.waves && !this.waitingForStart) this.updateWaves();
     this.moveEnemies();
     this.rebuildHash();
     this.updateTowers();
@@ -229,7 +393,9 @@ export class Sim {
     if (this.freezeLeft > 0) this.freezeLeft -= TICK;
     if (this.config.waves) {
       if (this.lives <= 0) this.status = 'lost';
-      else if (this.wave >= this.totalWaves - 1 && this.toSpawn === 0 && this.activeEnemies === 0) this.status = 'won';
+      else if (!this.waitingForStart && this.wave >= this.totalWaves - 1 && this.toSpawn === 0 && this.activeEnemies === 0) {
+        this.status = 'won';
+      }
     }
   }
 
@@ -247,11 +413,14 @@ export class Sim {
         }
         this.toSpawn--;
         this.spawnTimer = cfg.spawnInterval;
-        if (this.toSpawn === 0) this.pauseTimer = cfg.wavePause;
+        if (this.toSpawn === 0) {
+          this.pauseTimer = cfg.wavePause;
+          this.gold += 15 + this.wave * 5; // end-of-wave bonus once the last enemy has spawned
+        }
       }
     } else if (this.wave < cfg.waves - 1) {
       this.pauseTimer -= TICK;
-      if (this.pauseTimer <= 0 && this.activeEnemies < 8) this.startWave(this.wave + 1);
+      if (this.pauseTimer <= 0) this.startWave(this.wave + 1);
     }
   }
 
@@ -322,24 +491,32 @@ export class Sim {
     }
   }
 
+  // Target selection: the visitor keeps the best-scoring enemy (higher score wins).
   private best = -1;
-  private bestDist = -1;
-  private readonly pickFurthest = (i: number) => {
-    if (this.eDist[i] > this.bestDist) {
-      this.bestDist = this.eDist[i];
+  private bestScore = -Infinity;
+  private targetMode = 0;
+  private readonly pickTarget = (i: number, d2: number) => {
+    const score =
+      this.targetMode === 0 ? this.eDist[i] // first: furthest along the path
+      : this.targetMode === 1 ? -this.eDist[i] // last
+      : this.targetMode === 2 ? this.eHp[i] // strong
+      : -d2; // close
+    if (score > this.bestScore) {
+      this.bestScore = score;
       this.best = i;
     }
   };
 
   private updateTowers(): void {
-    for (let t = 0; t < this.towerCount; t++) {
-      const w = this.config.weapons[this.tWeapon[t]];
+    for (let t = 0; t < this.padCount; t++) {
+      const kind = this.tKind[t];
+      if (kind < 0) continue;
       this.tRecoil[t] = Math.max(0, this.tRecoil[t] - TICK * 1.5);
       this.tCool[t] -= TICK;
-      // "First" targeting: furthest-along enemy in range.
       this.best = -1;
-      this.bestDist = -1;
-      this.query(this.tX[t], this.tZ[t], w.range, this.pickFurthest);
+      this.bestScore = -Infinity;
+      this.targetMode = this.tTargeting[t];
+      this.query(this.tX[t], this.tZ[t], this.tRange[t], this.pickTarget);
       if (this.best < 0) continue;
       const target = this.best;
       const want = Math.atan2(this.eX[target] - this.tX[t], this.eZ[target] - this.tZ[t]);
@@ -348,16 +525,17 @@ export class Sim {
       const turn = 8 * TICK;
       this.tYaw[t] += Math.max(-turn, Math.min(turn, diff));
       if (this.tCool[t] <= 0 && Math.abs(diff) < 0.25 && this.pCount < MAX_PROJECTILES) {
-        this.tCool[t] = w.cooldown;
+        this.tCool[t] = this.tCooldown[t];
         this.tRecoil[t] = 0.12;
         const p = this.pCount++;
         this.pX[p] = this.tX[t] + Math.sin(this.tYaw[t]) * 0.35;
-        this.pY[p] = TOWER_WEAPON_Y + 0.35;
+        this.pY[p] = this.tMountY[t] + 0.35;
         this.pZ[p] = this.tZ[t] + Math.cos(this.tYaw[t]) * 0.35;
         this.pYaw[p] = this.tYaw[t];
         this.pTarget[p] = target;
         this.pGen[p] = this.eGen[target];
-        this.pKind[p] = this.tWeapon[t];
+        this.pKind[p] = kind;
+        this.pDamage[p] = this.tDamage[t];
       }
     }
   }
@@ -370,9 +548,13 @@ export class Sim {
     this.eHp[i] -= amount;
     if (this.eHp[i] <= 0) {
       this.kills++;
-      this.burst(this.eX[i], 0.6, this.eZ[i], 14, 2.2, 0);
-      if (this.config.waves) this.release(i);
-      else this.spawn(i, -this.rand() * 3, (this.rand() * ENEMY_TYPES) | 0);
+      this.burst(this.eX[i], 0.6, this.eZ[i], 14, 2.2, PARTICLE_EMBER);
+      if (this.config.waves) {
+        this.gold += ENEMY_BOUNTY[this.eType[i]];
+        this.release(i);
+      } else {
+        this.spawn(i, -this.rand() * 3, (this.rand() * ENEMY_TYPES) | 0);
+      }
     }
   }
 
@@ -387,22 +569,23 @@ export class Sim {
       const stepLen = w.speed * TICK;
       if (!alive || dist <= stepLen + 0.1) {
         if (!alive) {
-          this.burst(this.pX[p], this.pY[p], this.pZ[p], 3, 0.8, 0);
+          this.burst(this.pX[p], this.pY[p], this.pZ[p], 3, 0.8, PARTICLE_EMBER);
         } else {
           const crit = this.rand() < this.config.critChance;
-          if (crit) this.burst(tx, 0.7, tz, 6, 1.4, 1);
-          this.damage(t, w.damage * (crit ? 2 : 1));
+          if (crit) this.burst(tx, 0.7, tz, 6, 1.4, PARTICLE_GOLD);
+          const dmg = this.pDamage[p] * (crit ? 2 : 1);
+          this.damage(t, dmg);
           if (w.splash > 0) {
-            this.splashDamage = w.damage * 0.5;
+            this.splashDamage = dmg * 0.5;
             this.query(tx, tz, w.splash, this.applySplash);
-            this.burst(tx, 0.4, tz, 10, 1.6, 0);
+            this.burst(tx, 0.4, tz, 10, 1.6, PARTICLE_EMBER);
           }
         }
         // Swap-remove.
         const last = --this.pCount;
         this.pX[p] = this.pX[last]; this.pY[p] = this.pY[last]; this.pZ[p] = this.pZ[last];
         this.pYaw[p] = this.pYaw[last]; this.pTarget[p] = this.pTarget[last]; this.pKind[p] = this.pKind[last];
-        this.pGen[p] = this.pGen[last];
+        this.pGen[p] = this.pGen[last]; this.pDamage[p] = this.pDamage[last];
         p--;
         continue;
       }
@@ -413,6 +596,8 @@ export class Sim {
     }
   }
 
+  // --- Abilities ---
+
   /** Drops a meteor on (x, z); it lands after a short fall. */
   castMeteor(x: number, z: number, radius: number, damage: number): void {
     Object.assign(this.meteor, { active: true, x, z, y: METEOR_HEIGHT, t: 0, radius, damage });
@@ -421,7 +606,7 @@ export class Sim {
   castFreeze(seconds: number): void {
     this.freezeLeft = seconds;
     for (let i = 0; i < this.n; i++) {
-      if (this.eActive[i] && this.eDist[i] >= 0 && this.rand() < 0.3) this.burst(this.eX[i], 0.7, this.eZ[i], 2, 0.8, 2);
+      if (this.eActive[i] && this.eDist[i] >= 0 && this.rand() < 0.3) this.burst(this.eX[i], 0.7, this.eZ[i], 2, 0.8, PARTICLE_ICE);
     }
   }
 
@@ -435,8 +620,8 @@ export class Sim {
     if (m.t >= METEOR_FALL_TIME) {
       m.active = false;
       this.query(m.x, m.z, m.radius, this.applyMeteor);
-      this.burst(m.x, 0.3, m.z, 120, 5, 0);
-      this.burst(m.x, 0.3, m.z, 40, 3, 1);
+      this.burst(m.x, 0.3, m.z, 120, 5, PARTICLE_EMBER);
+      this.burst(m.x, 0.3, m.z, 40, 3, PARTICLE_GOLD);
     }
   }
 
@@ -465,6 +650,3 @@ export class Sim {
     }
   }
 }
-
-/** Height of the weapon mount on the tower stack (tile + bottom + top). */
-export const TOWER_WEAPON_Y = 0.2 + 0.6 + 0.5;

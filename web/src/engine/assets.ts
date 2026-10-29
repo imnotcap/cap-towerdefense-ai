@@ -61,3 +61,20 @@ export async function loadModels(
   );
   return out;
 }
+
+const heights = new WeakMap<THREE.BufferGeometry, number>();
+
+/** Top of a model above its origin (for stacking tower parts). */
+export function modelHeight(model: Model): number {
+  let top = 0;
+  for (const p of model) {
+    let h = heights.get(p.geometry);
+    if (h === undefined) {
+      p.geometry.computeBoundingBox();
+      h = p.geometry.boundingBox!.max.y;
+      heights.set(p.geometry, h);
+    }
+    top = Math.max(top, h);
+  }
+  return top;
+}

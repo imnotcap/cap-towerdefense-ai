@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
 import type { Screen } from '../engine/app';
-import type { Model } from '../engine/assets';
+import { type Model, modelHeight } from '../engine/assets';
 import { InstancedModel } from '../engine/instancing';
 import { StaticBatcher } from '../engine/static-batch';
 import type { ThemeId } from '../engine/themes';
@@ -371,6 +371,7 @@ export class WorldScreen implements Screen {
         h('dt', {}, 'Waves'), h('dd', {}, String(stage.waves.waves)),
         h('dt', {}, 'Enemy toughness'), h('dd', {}, `×${stage.hpScale.toFixed(2)}`),
         h('dt', {}, 'Your lives'), h('dd', {}, String(mods.lives)),
+        h('dt', {}, 'Starting gold'), h('dd', {}, formatNumber(stage.startGold + mods.bonusGold)),
         h('dt', {}, 'Reward'), reward),
       segmented,
       h('div', { class: 'actions' },
@@ -500,20 +501,6 @@ function worldXZ(cx: number, cy: number, y: number): [number, number, number] {
 const DEFAULT_VIEW = new THREE.Vector3(0, 1, 0.62).normalize();
 function viewOffset(dist: number): THREE.Vector3 {
   return DEFAULT_VIEW.clone().multiplyScalar(dist);
-}
-
-const heights = new WeakMap<Model, number>();
-function modelHeight(model: Model): number {
-  let hgt = heights.get(model);
-  if (hgt === undefined) {
-    hgt = 0;
-    for (const p of model) {
-      p.geometry.computeBoundingBox();
-      hgt = Math.max(hgt, p.geometry.boundingBox!.max.y);
-    }
-    heights.set(model, hgt);
-  }
-  return hgt;
 }
 
 const scaled = new Map<string, Model>();
