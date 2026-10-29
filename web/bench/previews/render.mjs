@@ -1,4 +1,4 @@
-// Writes assets/ui/towers/<kind>.png (card art) from bench/previews/index.html.
+// Writes assets/ui/art/<name>.png (tower card art and ability icons) from bench/previews/index.html.
 // Usage: node bench/previews/render.mjs   (starts its own Vite dev server)
 import { createServer } from 'vite';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 // Playwright comes from the environment (it is not a project dependency).
 const { chromium } = createRequire(import.meta.url)('playwright');
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const out = fileURLToPath(new URL('../../../assets/ui/towers/', import.meta.url));
+const out = fileURLToPath(new URL('../../../assets/ui/art/', import.meta.url));
 mkdirSync(out, { recursive: true });
 const server = await createServer({ root, server: { port: 0 }, logLevel: 'error' });
 await server.listen();

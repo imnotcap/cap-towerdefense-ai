@@ -75,8 +75,6 @@ export function framed<K extends keyof HTMLElementTagNameMap = 'div'>(
 /** Scrapworks icons are 64×64 canvases; `px` is the canvas size on screen (omit to size from CSS). */
 export const icon = (id: string, px?: number) => sprite(id, px === undefined ? null : px / 64, { class: 'icon' });
 
-/** Kenney 3D model preview (for towers/abilities, so the UI matches the 3D models). */
-export const preview = (model: string, cls = '') => h('img', { src: `models/kenney-td/Previews/${model}.png`, alt: '', class: cls });
 
 export type ButtonFamily = 'red' | 'blue' | 'amber' | 'burgundy';
 const FAMILY: Record<ButtonFamily, string> = {
@@ -270,6 +268,44 @@ addEventListener('resize', () => {
   document.querySelectorAll<HTMLElement>('.recipe').forEach(fitRecipe);
   document.querySelectorAll<HTMLElement>('.modal').forEach(fitModal);
 });
+
+/**
+ * Vertical scroll area drawn with the pack's scrollbar (9-sliced track, drag thumb).
+ * The bar only shows while the content overflows. Call `refresh` after re-rendering.
+ */
+export function scrollArea(cls = ''): { el: HTMLElement; body: HTMLElement; refresh: () => void } {
+  const body = h('div', { class: 'scroll-body' });
+  const thumb = sprite('scrollbar_thumb', null, { class: 'scroll-thumb' });
+  const bar = h('div', { class: 'scroll-bar sw-scrollbar_track interactive' }, thumb);
+  const el = h('div', { class: `scroll-area ${cls}`.trim() }, body, bar);
+  const refresh = () => {
+    const over = body.scrollHeight - body.clientHeight;
+    el.classList.toggle('overflowing', over > 1);
+    if (over <= 1) return;
+    const travel = bar.clientHeight - thumb.offsetHeight;
+    thumb.style.top = `${Math.round((body.scrollTop / over) * travel)}px`;
+  };
+  body.addEventListener('scroll', refresh, { passive: true });
+  new ResizeObserver(refresh).observe(body);
+  // Drag the thumb, or click the track to jump there.
+  bar.addEventListener('pointerdown', (e) => {
+    const scrollTo = (clientY: number) => {
+      const r = bar.getBoundingClientRect();
+      const t = (clientY - r.top - (thumb.getBoundingClientRect().height / 2)) / (r.height - thumb.getBoundingClientRect().height);
+      body.scrollTop = Math.max(0, Math.min(1, t)) * (body.scrollHeight - body.clientHeight);
+    };
+    bar.setPointerCapture(e.pointerId);
+    scrollTo(e.clientY);
+    const move = (ev: PointerEvent) => scrollTo(ev.clientY);
+    const up = () => {
+      bar.removeEventListener('pointermove', move);
+      bar.removeEventListener('pointerup', up);
+    };
+    bar.addEventListener('pointermove', move);
+    bar.addEventListener('pointerup', up);
+  });
+  return { el, body, refresh };
+}
 
 /** Opens a modal over `root`; returns a close function. Clicking the backdrop closes it unless `dismissable` is false. */
 export function modal(root: HTMLElement, content: HTMLElement, onClose?: () => void, dismissable = true): () => void {

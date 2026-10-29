@@ -1,6 +1,6 @@
-// Renders card art for each tower kind (its level-1 stack with the weapon on top)
-// from the game's own models. Driven by bench/previews/render.mjs, which screenshots
-// the canvas with a transparent background after each `window.show(i)`.
+// Renders card art from the game's own models: each tower kind (its level-1 stack
+// with the weapon on top) and the ability icons. Driven by bench/previews/render.mjs,
+// which screenshots the canvas with a transparent background after each `window.show(i)`.
 import * as THREE from 'three/webgpu';
 import { loadModels, modelHeight } from '../../src/engine/assets';
 import { TOWER_KINDS, TOWER_STACKS } from '../../src/stage/towers';
@@ -14,7 +14,9 @@ renderer.setClearColor(0x000000, 0);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.body.append(renderer.domElement);
 
-const names = [...new Set([...TOWER_STACKS.map((levels) => levels[0]).flat(), ...TOWER_KINDS.map((t) => t.weapon)])];
+/** Single-model icons: output name → model. */
+const ICONS: Record<string, string> = { meteor: 'weapon-ammo-boulder', freeze: 'snow-detail-crystal-large' };
+const names = [...new Set([...TOWER_STACKS.map((levels) => levels[0]).flat(), ...TOWER_KINDS.map((t) => t.weapon), ...Object.values(ICONS)])];
 const models = await loadModels(names);
 const scene = new THREE.Scene();
 scene.add(new THREE.HemisphereLight(0xfff4e0, 0x5a6a50, 1.6));
@@ -31,17 +33,23 @@ const meshOf = (name: string, y: number) => {
 };
 
 let current: THREE.Group | null = null;
-async function show(kind: number): Promise<void> {
+const outputs = [...TOWER_KINDS.map((t) => t.key), ...Object.keys(ICONS)];
+
+async function show(i: number): Promise<void> {
   if (current) scene.remove(current);
   const tower = new THREE.Group();
-  let y = 0;
-  for (const name of TOWER_STACKS[kind][0]) {
-    tower.add(meshOf(name, y));
-    y += modelHeight(models.get(name)!);
+  if (i < TOWER_KINDS.length) {
+    let y = 0;
+    for (const name of TOWER_STACKS[i][0]) {
+      tower.add(meshOf(name, y));
+      y += modelHeight(models.get(name)!);
+    }
+    const weapon = meshOf(TOWER_KINDS[i].weapon, y);
+    weapon.rotation.y = -Math.PI / 5; // turn the barrel towards the viewer
+    tower.add(weapon);
+  } else {
+    tower.add(meshOf(ICONS[outputs[i]], 0));
   }
-  const weapon = meshOf(TOWER_KINDS[kind].weapon, y);
-  weapon.rotation.y = -Math.PI / 5; // turn the barrel towards the viewer
-  tower.add(weapon);
   scene.add(tower);
   current = tower;
   // Frame the bounding box from a three-quarter view, filling the canvas.
@@ -54,4 +62,4 @@ async function show(kind: number): Promise<void> {
   await renderer.renderAsync(scene, camera);
 }
 
-Object.assign(window, { show, kinds: TOWER_KINDS.map((t) => t.key), ready: true });
+Object.assign(window, { show, kinds: outputs, ready: true });

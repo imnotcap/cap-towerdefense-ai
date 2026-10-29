@@ -108,6 +108,8 @@ export interface UpgradeDef {
   maxLevel: number;
   /** Effect text at a given level (1-based; level 0 means not bought). */
   effect: (level: number) => string;
+  /** What it does, for upgrades that need more than the effect line (abilities). */
+  blurb?: string;
   cost: (level: number) => number;
 }
 
@@ -128,16 +130,16 @@ export const TOWER_RATE_STEP = 0.07;
 export const UPGRADES: readonly UpgradeDef[] = [
   ...TOWERS.flatMap((t): UpgradeDef[] => [
     {
-      id: `${t.key}-damage`, tab: 'towers', group: t.name, name: 'Damage', icon: `ui/towers/${t.key}.png`, maxLevel: 5,
-      effect: (l) => `+${pct(l * TOWER_DAMAGE_STEP)} damage`, cost: growth(40, 1.55),
+      id: `${t.key}-damage`, tab: 'towers', group: t.name, name: 'Damage', icon: `ui/art/${t.key}.png`, maxLevel: 5,
+      effect: (l) => `+${pct(l * TOWER_DAMAGE_STEP)}`, cost: growth(40, 1.55),
     },
     {
-      id: `${t.key}-range`, tab: 'towers', group: t.name, name: 'Range', icon: `ui/towers/${t.key}.png`, maxLevel: 5,
-      effect: (l) => `+${pct(l * TOWER_RANGE_STEP)} range`, cost: growth(35, 1.5),
+      id: `${t.key}-range`, tab: 'towers', group: t.name, name: 'Range', icon: `ui/art/${t.key}.png`, maxLevel: 5,
+      effect: (l) => `+${pct(l * TOWER_RANGE_STEP)}`, cost: growth(35, 1.5),
     },
     {
-      id: `${t.key}-rate`, tab: 'towers', group: t.name, name: 'Fire rate', icon: `ui/towers/${t.key}.png`, maxLevel: 5,
-      effect: (l) => `+${pct(l * TOWER_RATE_STEP)} fire rate`, cost: growth(45, 1.6),
+      id: `${t.key}-rate`, tab: 'towers', group: t.name, name: 'Fire rate', icon: `ui/art/${t.key}.png`, maxLevel: 5,
+      effect: (l) => `+${pct(l * TOWER_RATE_STEP)}`, cost: growth(45, 1.6),
     },
   ]),
   {
@@ -146,11 +148,11 @@ export const UPGRADES: readonly UpgradeDef[] = [
   },
   {
     id: 'bounty-hunter', tab: 'commander', group: 'Commander', name: 'Bounty Hunter', icon: PREVIEW + 'detail-crystal-large.png',
-    maxLevel: 5, effect: (l) => `+${l * 10}% crystals from stages`, cost: growth(60, 1.65),
+    maxLevel: 5, effect: (l) => `+${l * 10}% crystals`, cost: growth(60, 1.65),
   },
   {
     id: 'sharpshooter', tab: 'commander', group: 'Commander', name: 'Sharpshooter', icon: PREVIEW + 'weapon-ammo-arrow.png',
-    maxLevel: 5, effect: (l) => `${l * 4}% chance of double damage`, cost: growth(55, 1.6),
+    maxLevel: 5, effect: (l) => `${l * 4}% double damage`, cost: growth(55, 1.6),
   },
   {
     id: 'war-chest', tab: 'commander', group: 'Commander', name: 'War Chest', icon: PREVIEW + 'detail-crystal.png',
@@ -158,24 +160,26 @@ export const UPGRADES: readonly UpgradeDef[] = [
   },
   {
     id: 'engineering', tab: 'commander', group: 'Commander', name: 'Engineering', icon: PREVIEW + 'wood-structure.png',
-    maxLevel: 5, effect: (l) => `\u2212${l * 4}% build & upgrade cost`, cost: growth(70, 1.65),
+    maxLevel: 5, effect: (l) => `\u2212${l * 4}% tower costs`, cost: growth(70, 1.65),
   },
   {
     id: 'salvage', tab: 'commander', group: 'Commander', name: 'Salvage Crew', icon: PREVIEW + 'wood-structure-part.png',
-    maxLevel: 3, effect: (l) => `Sell for ${Math.round((SELL_REFUND + l * 0.08) * 100)}% of cost`, cost: growth(40, 1.7),
+    maxLevel: 3, effect: (l) => `${Math.round((SELL_REFUND + l * 0.08) * 100)}% sell refund`, cost: growth(40, 1.7),
   },
   {
     id: 'quick-hands', tab: 'commander', group: 'Commander', name: 'Quick Hands', icon: PREVIEW + 'tower-round-crystals.png',
-    maxLevel: 5, effect: (l) => `−${l * 8}% ability cooldown`, cost: growth(50, 1.6),
+    maxLevel: 5, effect: (l) => `−${l * 8}% cooldowns`, cost: growth(50, 1.6),
   },
   {
-    id: 'meteor', tab: 'abilities', group: 'Meteor Strike', name: 'Meteor Strike', icon: PREVIEW + 'weapon-ammo-boulder.png',
-    maxLevel: 4, effect: (l) => (l === 1 ? 'Unlocks: tap the map to crush a crowd' : `${meteorDamage(l)} impact damage`),
+    id: 'meteor', tab: 'abilities', group: 'Meteor Strike', name: 'Meteor Strike', icon: 'ui/art/meteor.png',
+    blurb: 'Tap the map to drop a meteor on a crowd of saucers.',
+    maxLevel: 4, effect: (l) => `${meteorDamage(l)} impact damage`,
     cost: (l) => (l === 0 ? 120 : growth(90, 1.7)(l)),
   },
   {
-    id: 'freeze', tab: 'abilities', group: 'Deep Freeze', name: 'Deep Freeze', icon: PREVIEW + 'snow-detail-crystal-large.png',
-    maxLevel: 4, effect: (l) => (l === 1 ? 'Unlocks: slows every enemy' : `${freezeSeconds(l)}s slow`),
+    id: 'freeze', tab: 'abilities', group: 'Deep Freeze', name: 'Deep Freeze', icon: 'ui/art/freeze.png',
+    blurb: 'Slows every saucer on the map for a few seconds.',
+    maxLevel: 4, effect: (l) => `${freezeSeconds(l)}s slow on every saucer`,
     cost: (l) => (l === 0 ? 100 : growth(80, 1.7)(l)),
   },
 ];

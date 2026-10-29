@@ -10,7 +10,7 @@ import type { Game } from '../game';
 import { DIFFICULTY, starsFor, stageReward, type Difficulty, type StageDef } from '../meta/catalog';
 import type { Modifiers } from '../meta/profile';
 import {
-  amount, art, at, button, formatNumber, framed, h, icon, modal, preview, progressBar, sfx, squareButton, stars, text, titleBanner, toast,
+  amount, art, at, button, formatNumber, framed, h, icon, modal, progressBar, sfx, squareButton, stars, text, titleBanner, toast,
 } from '../ui/dom';
 import { confirmDialog, paperMenu } from '../ui/menus';
 import { BORDER, buildBorder } from './border';
@@ -332,13 +332,13 @@ export class StageScreen implements Screen {
     const left = h('div', { class: 'side-left' });
     if (this.mods.meteor) {
       hud.meteor = h('span', { class: 'cd' });
-      const b = squareButton(preview('weapon-ammo-boulder'), () => this.armMeteor(), { color: 'amber', class: 'interactive' });
+      const b = squareButton(h('img', { src: 'ui/art/meteor.png', alt: '' }), () => this.armMeteor(), { color: 'amber', class: 'interactive' });
       b.title = 'Meteor Strike';
       left.append(h('div', { class: 'ability' }, b, hud.meteor, h('span', { class: 'name' }, 'METEOR')));
     }
     if (this.mods.freeze) {
       hud.freeze = h('span', { class: 'cd' });
-      const b = squareButton(preview('snow-detail-crystal'), () => this.castFreeze(), { color: 'teal', class: 'interactive' });
+      const b = squareButton(h('img', { src: 'ui/art/freeze.png', alt: '' }), () => this.castFreeze(), { color: 'teal', class: 'interactive' });
       b.title = 'Deep Freeze';
       left.append(h('div', { class: 'ability' }, b, hud.freeze, h('span', { class: 'name' }, 'FREEZE')));
     }
@@ -351,7 +351,7 @@ export class StageScreen implements Screen {
     this.buildButtons = TOWER_KINDS.map((t, i) => {
       const card = at(h('button', { class: 'tcard sw fit sw-card_tower_empty interactive' },
         // Card art rendered from the tower's own models (bench/previews).
-        h('img', { src: `ui/towers/${t.key}.png`, alt: '', class: 'pic' }),
+        h('img', { src: `ui/art/${t.key}.png`, alt: '', class: 'pic' }),
         h('span', { class: 'price' }, icon('coin_gold', 24), h('span', {}, String(this.sim.buildCost(i as TowerKind))))),
       [Math.round(87 + i * 112.67), 18, 100, 148]);
       card.title = `${t.name} (${i + 1}): ${t.blurb}`;

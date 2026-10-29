@@ -101,6 +101,7 @@ button { font: inherit; color: inherit; }
 }
 .sq > .icon { --k: calc(var(--qk) * 0.62); margin-top: calc(-3px * var(--qk)); pointer-events: none; }
 .sq > img { width: calc(40px * var(--qk)); height: calc(40px * var(--qk)); object-fit: contain; margin-top: calc(-3px * var(--qk)); pointer-events: none; }
+.sq > .sq-num { font-size: calc(32px * var(--qk)); margin-top: calc(-4px * var(--qk)); pointer-events: none; }
 .sq > .sq-label { position: absolute; inset: 0 0 calc(4px * var(--qk)); display: grid; place-items: center; font-size: calc(26px * var(--qk)); pointer-events: none; }
 .sq:hover:not(:disabled) { filter: brightness(1.08); }
 .sq:active:not(:disabled) { transform: translateY(2px); filter: brightness(0.94); }
@@ -148,11 +149,16 @@ button { font: inherit; color: inherit; }
 @keyframes fade { from { opacity: 0; } }
 @keyframes pop { from { transform: scale(0.88); opacity: 0; } }
 
-/* Scrollable safe areas use the pack's scrollbar art. */
-.scroll { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #e3a52a #3a2216; }
-.scroll::-webkit-scrollbar { width: 14px; }
-.scroll::-webkit-scrollbar-track { background: image-set(url('/ui/scrapworks/1x/controls/scrollbar_track.png') 1x, url('/ui/scrapworks/2x/controls/scrollbar_track.png') 2x) center / 100% 100%; }
-.scroll::-webkit-scrollbar-thumb { background: image-set(url('/ui/scrapworks/1x/controls/scrollbar_thumb.png') 1x, url('/ui/scrapworks/2x/controls/scrollbar_thumb.png') 2x) center / 100% 100%; }
+/* Scroll areas with the pack's scrollbar: a 9-sliced track (14 px caps on 20×160) and a drag thumb. */
+.scroll-area { display: flex; min-height: 0; }
+.scroll-body { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.scroll-body::-webkit-scrollbar { display: none; }
+.scroll-bar {
+  display: none; position: relative; flex: none; width: 16px; margin-left: 6px; box-sizing: border-box; cursor: pointer; touch-action: none;
+  border-style: solid; border-width: 10px 0; border-image-source: var(--img); border-image-slice: 8.75% 0 fill; border-image-width: 10px 0;
+}
+.scroll-area.overflowing .scroll-bar { display: block; }
+.scroll-thumb { --k: 0.8; position: absolute; left: 0; top: 0; pointer-events: none; }
 
 /* --- Wood-plank toast (hints) ------------------------------------------- */
 .toast { position: absolute; left: 0; right: 0; margin: 0 auto; z-index: 3; }
@@ -188,26 +194,64 @@ button { font: inherit; color: inherit; }
 .stage-card .row { display: flex; justify-content: center; align-items: center; gap: 10px; }
 .segmented { display: flex; gap: 2px; justify-content: center; }
 
-/* --- Shop --------------------------------------------------------------- */
-/* The shop uses the panel's full burgundy interior (measured on the 1x art), a little larger than its label-safe rect. */
-.shop > .safe { display: flex; flex-direction: column; left: calc(64px * var(--k)); top: calc(104px * var(--k)); width: calc(364px * var(--k)); height: calc(164px * var(--k)); }
-.shop .grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 14px; align-content: start; padding-right: 8px; overflow-y: scroll; }
-.shop .group-title { grid-column: 1 / -1; font-size: 22px; color: var(--gold); text-shadow: var(--outline); margin-top: 2px; }
-.item { display: flex; gap: 8px; align-items: center; color: var(--cream); }
-.item .frame { --k: 0.56; }
-.item .frame .safe { display: flex; align-items: center; justify-content: center; }
-.item .frame img { width: 120%; height: 120%; flex: none; object-fit: contain; }
-.item .info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.item .name { font-size: 19px; line-height: 1; text-shadow: var(--outline); }
-.item .effect { font-size: 14px; line-height: 1.05; color: #e9d9b4; text-shadow: var(--outline); }
-.item .effect .next { color: #9fe39a; }
-.item .row { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
-.tabs { display: flex; gap: 2px; }
+/* --- Shop (Armory) ------------------------------------------------------ */
+/* Wide: the red shop panel at 1.8× (864×648); head, tabs, list and note sit at rects measured on its art. */
+.shop-modal { position: relative; }
+.shop-modal.wide { width: 864px; height: 648px; padding: 0; }
+.shop-modal.wide .shop-panel { position: absolute; left: 0; top: 0; }
+.shop-modal.wide .shop-head { position: absolute; left: 0; right: 0; top: 4px; display: flex; justify-content: center; align-items: center; gap: 12px; }
+.shop-modal.wide .shop-tabs { position: absolute; left: 0; right: 0; top: 120px; display: flex; justify-content: center; gap: 6px; }
+/* Largest rect inside the burgundy interior (84..416 × 107..268 at 1x), clear of the corner blocks. */
+.shop-modal.wide .shop-list { position: absolute; left: 151px; top: 193px; width: 599px; height: 290px; }
+.shop-modal.wide .note { position: absolute; left: 0; right: 0; top: 572px; text-align: center; }
+/* Tall (phones): head and tabs above the dark tooltip panel, one scrolling column inside it. */
+.shop-modal.tall { width: 380px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.shop-modal.tall .shop-head { order: 1; display: flex; align-items: center; gap: 6px; }
+.shop-modal.tall .shop-head .banner { --k: 0.48 !important; }
+.shop-modal.tall .shop-head .banner .safe { font-size: 32px !important; }
+.shop-modal.tall .shop-tabs { order: 2; display: flex; gap: 2px; }
+.shop-modal.tall .shop-tabs .btn { --k: 0.46; min-width: 0; padding: 0 22px 2px; }
+.shop-modal.tall .shop-panel { order: 3; position: relative; }
+/* Inside the dark panel's bevelled edge (26..196 × 46..244 at 1x). */
+.shop-modal.tall .shop-list { position: absolute; left: 45px; top: 79px; width: 294px; height: 342px; }
+.shop-modal.tall .note { order: 4; }
+.shop-modal .note { font-size: 15px; color: var(--cream); text-shadow: var(--outline); }
 
-.shop-modal { gap: 2px; }
-.shop-head { display: flex; align-items: center; gap: 8px; }
-.shop-modal .note { font-size: 16px; }
-.sq > .sq-num { font-size: calc(32px * var(--qk)); margin-top: calc(-4px * var(--qk)); pointer-events: none; }
+.shop-grid { display: grid; gap: 6px 16px; align-content: start; padding-bottom: 4px; }
+.shop-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.shop-grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tall .shop-grid { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.shop-group { display: flex; flex-direction: column; gap: 6px; }
+.tall .shop-group + .shop-group { margin-top: 8px; }
+.group-head { display: flex; align-items: center; gap: 6px; height: 46px; font-size: 24px; color: var(--gold); text-shadow: var(--outline); }
+.group-head img { width: 46px; height: 46px; object-fit: contain; }
+/* One upgrade: an inset slot on the panel. */
+.upg {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; min-height: 56px; box-sizing: border-box;
+  padding: 4px 4px 4px 9px; border-radius: 6px; background: rgba(30, 4, 10, 0.38); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 220, 190, 0.08);
+}
+.tall .upg { background: rgba(0, 0, 0, 0.22); }
+.tall .upg .name { white-space: normal; }
+.upg.with-icon { grid-template-columns: auto minmax(0, 1fr) auto; padding-left: 4px; }
+.upg .frame { --k: 0.46; }
+.upg .frame .safe { display: flex; align-items: center; justify-content: center; }
+.upg .frame img { width: 125%; height: 125%; flex: none; object-fit: contain; }
+.upg .info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.upg .name { font-size: 18px; line-height: 1; color: var(--cream); text-shadow: var(--outline); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.upg .effect { font-size: 13px; line-height: 1.1; color: #e9d9b4; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5); }
+.upg .effect .next { color: #9fe39a; }
+.upg .pips { display: flex; gap: 0; margin-left: -2px; }
+.upg .maxed { display: inline-flex; align-items: center; gap: 2px; padding-right: 10px; font-size: 20px; color: var(--gold); text-shadow: var(--outline); }
+.upg .buy { --k: 0.5; padding: 0 13px 2px; min-width: 72px; }
+/* Abilities: two large cards filling the panel. */
+.upg.feature { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 8px 12px; text-align: center; min-height: 280px; }
+.tall .upg.feature { min-height: 0; }
+.upg.feature .frame { --k: 0.7; }
+.upg.feature .name { font-size: 24px; }
+.upg.feature .blurb { font: 400 13px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif; color: #f1e4c4; max-width: 260px; }
+.upg.feature .state { font-size: 14px; color: var(--gold); text-shadow: var(--outline); margin-top: 2px; }
+.upg.feature .buy { --k: 0.55; margin-top: 2px; }
+.upg .buy .amount { gap: 3px; font-size: 22px; }
 
 /* --- Battle HUD (the pack's tower-HUD recipe) ---------------------------- */
 /* --hz scales the anchored HUD groups (phones down, big screens up). */
@@ -316,13 +360,6 @@ button { font: inherit; color: inherit; }
   .tray .tab-group { display: none; }
   /* Below the hint plank, clear of the top bar. */
   .tower-info { top: 300px; }
-  .item .frame { --k: 0.42; }
-  .shop .grid { gap: 2px 0; }
-  .tabs .btn.sm { --k: 0.46; }
-  .item { gap: 6px; }
-  .item .name { font-size: 16px; }
-  .item .effect { font-size: 12px; }
-  .item > .btn.sm { --k: 0.46; }
   .hud-top .wave-meter { position: absolute; left: 0; right: 0; top: 46px; }
   /* Clear of the tray: (18 + 180) × --tz, in units zoomed by --hz. */
   .side-left, .side-right { bottom: 250px; }

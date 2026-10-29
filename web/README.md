@@ -130,8 +130,11 @@ The UI uses the **Scrapworks UI** pack with **Passion One Bold** for all display
   layout recipes: `at()`, `art()`, `text()` and `rectButton()` in `src/ui/dom.ts` place
   elements at the recipes' pixel rects. Modal recipes zoom to fit the viewport; the
   HUD scales with `--hz` / `--tz` (smaller on phones, larger on big screens).
-- Tower card art is rendered from the towers' own 3D models:
-  `npm run bench:previews` writes `assets/ui/towers/<kind>.png`.
+- Tower card art and the ability icons are rendered from the game's own 3D models:
+  `npm run bench:previews` writes `assets/ui/art/<name>.png`.
+- The Armory uses the red shop panel on wide screens (one column per tower, so the
+  Towers tab needs no scrolling) and the tall dark panel with one scrolling column on
+  phones. Scroll areas use the pack's scrollbar track and thumb (`scrollArea()`).
 
 ## Performance notes (Phase 0)
 
@@ -185,6 +188,6 @@ shadows are needed before large hordes on low-end devices.
 - `assets/ui/kenney-ui/`: Kenney UI Pack, CC0 (only its click/switch sounds are used now)
 - `assets/ui/scrapworks/`: Scrapworks UI pack (see its `LICENSE-NOTE.txt`)
 - `assets/ui/fonts/`: Passion One Bold, SIL Open Font License (`PassionOne-OFL.txt`)
-- `assets/ui/towers/`: tower card art rendered from the Kenney models
+- `assets/ui/art/`: tower card art and ability icons rendered from the Kenney models
 
 Theme palettes are generated with `python3 tools/gen-palettes.py`.
