@@ -1,35 +1,38 @@
 import { SHOP_TABS, UPGRADES, type ShopTab, type UpgradeDef } from '../meta/catalog';
 import type { Profile } from '../meta/profile';
-import { button, crystal, formatNumber, h, modal, sfx } from '../ui/dom';
+import { amount, button, counter, formatNumber, framed, h, icon, modal, sfx, titleBanner, withCloseTab } from '../ui/dom';
 
 let lastTab: ShopTab = 'towers';
 
 /** The Armory: spend crystals on permanent tower, commander and ability upgrades. */
 export function openShop(root: HTMLElement, profile: Profile): void {
-  const balance = h('span', { class: 'title', style: 'font-size: 18px' });
+  const balance = h('span');
   const tabs = h('div', { class: 'tabs' });
-  const body = h('div');
+  const grid = h('div', { class: 'grid scroll' });
+  const phone = matchMedia('(max-width: 640px)').matches;
+  const panel = framed('panel_shop_red', phone ? 0.8 : 1.5, { class: 'shop' }, grid);
 
   const render = () => {
-    balance.replaceChildren(formatNumber(profile.crystals), ' ', crystal());
+    balance.textContent = formatNumber(profile.crystals);
     tabs.replaceChildren(...SHOP_TABS.map((t) =>
-      button(t.label, () => ((lastTab = t.id), render()), `small${t.id === lastTab ? ' active' : ''}`)));
-
-    const groups = new Map<string, UpgradeDef[]>();
+      button(t.label.toUpperCase(), () => ((lastTab = t.id), render()), { family: t.id === lastTab ? 'amber' : 'blue', size: 'sm' })));
+    const scroll = grid.scrollTop;
+    const items: HTMLElement[] = [];
+    let group = '';
     for (const u of UPGRADES.filter((u) => u.tab === lastTab)) {
-      if (!groups.has(u.group)) groups.set(u.group, []);
-      groups.get(u.group)!.push(u);
+      if (u.group !== group && u.tab === 'towers') items.push(h('div', { class: 'group-title' }, u.group.toUpperCase()));
+      group = u.group;
+      items.push(item(u));
     }
-    body.replaceChildren(...[...groups].map(([name, items]) =>
-      h('section', { class: 'group' }, h('h3', {}, name), h('div', { class: 'cards' }, ...items.map(card)))));
+    grid.replaceChildren(...items);
+    grid.scrollTop = scroll;
   };
 
-  const card = (u: UpgradeDef): HTMLElement => {
+  const item = (u: UpgradeDef): HTMLElement => {
     const level = profile.level(u.id);
     const cost = profile.nextCost(u);
-    const affordable = cost !== null && cost <= profile.crystals;
-    const pips = h('div', { class: 'pips' });
-    for (let i = 0; i < u.maxLevel; i++) pips.append(h('span', { class: `pip${i < level ? ' on' : ''}` }));
+    const pips = h('span', { class: 'stars' });
+    for (let i = 0; i < u.maxLevel; i++) pips.append(icon(i < level ? 'radio_on' : 'radio_off', 17));
 
     const effect = h('div', { class: 'effect' });
     if (level > 0) effect.append(u.effect(level));
@@ -39,35 +42,27 @@ export function openShop(root: HTMLElement, profile: Profile): void {
     }
 
     const buy = cost === null
-      ? h('button', { class: 'btn small grey', disabled: true }, 'Complete')
-      : button(h('span', { style: 'display: contents' }, formatNumber(cost), crystal()), () => {
+      ? button('MAXED', () => {}, { family: 'amber', size: 'sm', class: 'slim' })
+      : button(amount(formatNumber(cost), 'gem', 26), () => {
         if (profile.buy(u)) {
           sfx('switch-a');
           render();
         }
-      }, `small ${affordable ? 'green' : 'grey'}`);
-    if (cost !== null && !affordable) buy.disabled = true;
+      }, { family: 'amber', size: 'sm', class: 'slim' });
+    buy.disabled = cost === null || cost > profile.crystals;
 
-    return h('div', { class: 'card panel white' },
-      h('img', { src: u.icon, alt: '' }),
-      h('div', { class: 'name' }, u.name),
-      effect,
-      pips,
-      buy);
+    const frame = framed('card_item_empty', null, { class: 'frame' }, h('img', { src: u.icon, alt: '' }));
+    const name = h('div', { class: 'name' }, u.name.toUpperCase());
+    // Phones get one compact line per upgrade so more of them fit in the panel.
+    return phone
+      ? h('div', { class: 'item' }, frame, h('div', { class: 'info' }, name, effect, pips), buy)
+      : h('div', { class: 'item' }, frame, h('div', { class: 'info' }, name, effect, h('div', { class: 'row' }, pips, buy)));
   };
 
   render();
-  const close = modal(root, h('div', { class: 'shop' },
-    h('header', {}, h('h2', {}, 'Armory'), balance),
-    h('p', { class: 'sub' }, 'Upgrades are permanent and apply to every battle.'),
+  const close = modal(root, h('div', { class: 'shop-modal' },
+    h('div', { class: 'shop-head' }, titleBanner('ARMORY', 'red', phone ? 0.5 : 0.62, phone ? 30 : 38), counter('gem_amber', balance)),
     tabs,
-    body,
-    h('div', { class: 'actions' },
-      button('Reset progress', () => {
-        if (confirm('Reset all crystals, stars and upgrades?')) {
-          profile.reset();
-          render();
-        }
-      }, 'small red'),
-      button('Done', () => close(), 'grey'))));
+    withCloseTab(panel, () => close(), { right: phone ? 6 : 14, top: phone ? 44 : 84 }),
+    h('div', { class: 'note cream' }, 'Upgrades are permanent and apply to every battle.')));
 }

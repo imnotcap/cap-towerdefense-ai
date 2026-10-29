@@ -1,5 +1,5 @@
 import type { App } from '../engine/app';
-import { button, h } from '../ui/dom';
+import { button, framed, h } from '../ui/dom';
 import type { StageScreen } from './stage-screen';
 
 const PRESETS = [250, 1000, 2500, 5000, 10000];
@@ -23,26 +23,22 @@ export function attachBenchHud(app: App, stage: StageScreen, ui: HTMLElement, op
     if (dd.textContent !== value) dd.textContent = value;
     if (dd.className !== tone) dd.className = tone;
   };
-  ui.append(h('div', { class: 'stats panel' }, h('h1', {}, 'Phase 0 · Perf'), h('div', { class: 'divider' }), dl));
+  ui.append(framed('panel_tooltip_brown', 1.55, { class: 'stats-panel' }, h('h1', {}, 'PERF'), dl));
 
   const { perf, sim } = stage;
   set('Backend', app.backend, app.backend === 'WebGPU' ? 'good' : 'warn');
   set('Towers', String(sim.padCount));
   set('Static tris', `${(perf.staticTris / 1000).toFixed(1)}k (−${Math.round((1 - perf.staticTris / perf.staticTrisBefore) * 100)}%) in ${perf.staticMeshes} meshes`);
 
-  const row = h('div', { class: 'row' });
-  const buttons = PRESETS.map((n) => {
-    const b = button(n.toLocaleString('en-US'), () => select(n));
-    row.append(b);
-    return b;
-  });
+  const bar = h('div', { class: 'bench-controls interactive' });
   const select = (n: number) => {
     sim.setEnemyCount(n);
     stage.setEnemyShadows();
-    buttons.forEach((b, i) => b.classList.toggle('active', PRESETS[i] === n));
+    bar.replaceChildren(...PRESETS.map((p) =>
+      button(p.toLocaleString('en-US'), () => select(p), { family: p === n ? 'amber' : 'blue', size: 'sm' })));
   };
   select(sim.n);
-  ui.append(h('div', { class: 'bench-controls panel interactive' }, h('span', { class: 'label' }, 'Enemies'), row));
+  ui.append(bar);
 
   let frames = 0;
   let windowStart = performance.now();

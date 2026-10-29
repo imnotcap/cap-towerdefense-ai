@@ -9,7 +9,10 @@ import { tileGridCuller } from '../engine/tiles';
 import type { Game } from '../game';
 import { DIFFICULTY, starsFor, stageReward, type Difficulty, type StageDef } from '../meta/catalog';
 import type { Modifiers } from '../meta/profile';
-import { button, crystal, formatNumber, h, modal, sfx, stars } from '../ui/dom';
+import {
+  amount, art, at, button, formatNumber, framed, h, icon, modal, preview, progressBar, sfx, squareButton, stars, text, titleBanner, toast,
+} from '../ui/dom';
+import { confirmDialog, paperMenu } from '../ui/menus';
 import { BORDER, buildBorder } from './border';
 import { Gates } from './gates';
 import { buildStressTowers } from './stress';
@@ -22,6 +25,8 @@ import { TOWER_KINDS, TOWER_MODELS, TOWER_STACKS, type TowerKind } from './tower
 /** One model per enemy type; the last is the boss. */
 export const ENEMY_MODELS = ['enemy-ufo-a', 'enemy-ufo-b', 'enemy-ufo-c', 'enemy-ufo-d', 'enemy-ufo-b-weapon'];
 const ENEMY_SCALE = [0.55, 0.55, 0.58, 0.62, 1.25];
+/** Names for the warning banner, by enemy type. */
+const ENEMY_NAMES = ['SCOUT', 'DRONE', 'RAIDER', 'CRUISER', 'MOTHERSHIP'];
 export const STAGE_EXTRA_MODELS = ['selection-a', 'weapon-ammo-boulder'];
 const MAX_ENEMIES = 10000;
 const ENEMY_SHADOW_LIMIT = 2500;
@@ -91,9 +96,13 @@ export class StageScreen implements Screen {
   private armedMeteor = false;
   private cooldowns = { meteor: 0, freeze: 0 };
   private hud: {
-    lives?: HTMLElement; gold?: HTMLElement; wave?: HTMLElement; waveNote?: HTMLElement; call?: HTMLButtonElement; preview?: HTMLElement;
-    meteor?: HTMLElement; freeze?: HTMLElement; aim?: HTMLElement;
+    heart?: HTMLElement; lives?: HTMLElement; gold?: HTMLElement; wave?: HTMLElement; waveNote?: HTMLElement;
+    call?: HTMLButtonElement; callLabel?: Text; nextTab?: HTMLElement; nextIcon?: HTMLElement; nextCount?: HTMLElement;
+    meteor?: HTMLElement; freeze?: HTMLElement; hint?: HTMLElement;
   } = {};
+  private waveBar: { el: HTMLElement; set: (frac: number) => void } | null = null;
+  private announcedWave = 0;
+  private closePause: (() => void) | null = null;
   private panel: TowerPanel | null = null;
   private hoveredPad = -1;
   /** Placing mode: the tower picked in the build bar, and the cell the ghost sits on. */
@@ -258,7 +267,7 @@ export class StageScreen implements Screen {
     canvas.addEventListener('pointerup', this.onUp);
     canvas.addEventListener('pointermove', this.onMove);
     addEventListener('keydown', this.onKey);
-    if (this.mode.kind === 'campaign') this.buildHud(this.mode.stage);
+    if (this.mode.kind === 'campaign') this.buildHud();
   }
 
   exit(): void {
@@ -290,52 +299,101 @@ export class StageScreen implements Screen {
 
   // --- HUD ---
 
-  private buildHud(stage: StageDef): void {
-    this.hud.lives = h('span');
-    this.hud.gold = h('span');
-    this.hud.wave = h('span');
-    this.hud.waveNote = h('span', { class: 'label' });
-    const speedBtn = button('1×', () => {
+  /**
+   * Battle HUD, laid out from the pack's tower-HUD recipe: bare counters over the
+   * map (top left), the wave bar, the pause button, and the card tray with its two
+   * tabs at the bottom. Abilities and the wave call button sit in the corners.
+   */
+  private buildHud(): void {
+    const { hud } = this;
+    hud.heart = icon('heart_full', 40);
+    hud.lives = h('span', { class: 'value lives' });
+    hud.gold = h('span', { class: 'value gold' });
+    hud.wave = h('span', { class: 'value wave' });
+    hud.waveNote = h('span', { class: 'label' });
+    this.waveBar = progressBar('wave', 234 / 240);
+    const speedLabel = h('span', { class: 'sq-num' }, '1×');
+    const speedBtn = squareButton(speedLabel, () => {
       this.speed = this.speed === 1 ? 2 : 1;
-      speedBtn.textContent = `${this.speed}×`;
-      speedBtn.classList.toggle('yellow', this.speed === 2);
-    }, 'small');
-    this.ui.append(
-      h('div', { class: 'stage-top' },
-        h('div', { class: 'panel', title: 'Lives' }, h('span', { class: 'heart' }), this.hud.lives),
-        h('div', { class: 'panel', title: 'Gold' }, h('span', { class: 'coin' }), this.hud.gold),
-        h('div', { class: 'panel wave-panel' }, h('span', { class: 'label' }, 'Wave'), this.hud.wave, this.hud.waveNote),
-        h('div', { class: 'panel stage-name' },
-          h('span', { class: 'title' }, stage.name),
-          h('span', { class: 'label' }, `${stage.area.name} · ${DIFFICULTY[(this.mode as { difficulty: Difficulty }).difficulty].label}`)),
-      ),
-      h('div', { class: 'resources' }, speedBtn, button('Retreat', () => this.confirmRetreat(), 'small red')),
-    );
+      speedLabel.textContent = `${this.speed}×`;
+      speedBtn.classList.replace(this.speed === 2 ? 'sw-square_blue' : 'sw-square_amber', this.speed === 2 ? 'sw-square_amber' : 'sw-square_blue');
+    }, { class: 'interactive' });
+    speedBtn.title = 'Game speed';
+    const pauseBtn = squareButton('pause', () => this.openPause(), { class: 'interactive' });
+    pauseBtn.title = 'Pause (P)';
+    this.ui.append(h('div', { class: 'hud-top' },
+      h('div', { class: 'stats' },
+        h('div', { class: 'stat' }, hud.heart, hud.lives),
+        h('div', { class: 'stat' }, icon('coin_gold', 35), hud.gold),
+        h('div', { class: 'stat' }, icon('boss', 35), hud.wave)),
+      h('div', { class: 'wave-meter' }, this.waveBar.el, hud.waveNote),
+      h('div', { class: 'buttons' }, speedBtn, pauseBtn)));
 
-    const abilities = h('div', { class: 'abilities' });
+    const left = h('div', { class: 'side-left' });
     if (this.mods.meteor) {
-      this.hud.meteor = h('span', { class: 'cd' });
-      abilities.append(h('div', { class: 'ability' },
-        button(iconLabel('weapon-ammo-boulder', 'Meteor'), () => this.armMeteor(), 'yellow'), this.hud.meteor));
+      hud.meteor = h('span', { class: 'cd' });
+      const b = squareButton(preview('weapon-ammo-boulder'), () => this.armMeteor(), { color: 'amber', class: 'interactive' });
+      b.title = 'Meteor Strike';
+      left.append(h('div', { class: 'ability' }, b, hud.meteor, h('span', { class: 'name' }, 'METEOR')));
     }
     if (this.mods.freeze) {
-      this.hud.freeze = h('span', { class: 'cd' });
-      abilities.append(h('div', { class: 'ability' },
-        button(iconLabel('snow-detail-crystal', 'Freeze'), () => this.castFreeze(), ''), this.hud.freeze));
+      hud.freeze = h('span', { class: 'cd' });
+      const b = squareButton(preview('snow-detail-crystal'), () => this.castFreeze(), { color: 'teal', class: 'interactive' });
+      b.title = 'Deep Freeze';
+      left.append(h('div', { class: 'ability' }, b, hud.freeze, h('span', { class: 'name' }, 'FREEZE')));
     }
-    this.hud.call = button('Start wave', () => this.callWave(), 'green big');
+
+    hud.call = button('START WAVE', () => this.callWave(), { family: 'red', icon: 'play' });
+    hud.callLabel = hud.call.lastChild as Text;
+    const right = h('div', { class: 'side-right' }, hud.call);
+
+    // Tray (recipe coordinates relative to the inventory panel at 208,402).
     this.buildButtons = TOWER_KINDS.map((t, i) => {
-      const b = button(h('span', { style: 'display: contents' },
-        h('img', { src: `models/kenney-td/Previews/${t.weapon}.png`, alt: '' }),
-        h('span', { class: 'bb-name' }, t.name, h('kbd', {}, String(i + 1))),
-        h('span', { class: 'bb-cost' }, h('span', { class: 'coin' }), String(this.sim.buildCost(i as TowerKind)))),
-      () => this.setPlacing(i as TowerKind), 'build-btn');
-      b.title = t.blurb;
-      return b;
+      const card = at(h('button', { class: 'tcard sw fit sw-card_tower_empty interactive' },
+        // Card art rendered from the tower's own models (bench/previews).
+        h('img', { src: `ui/towers/${t.key}.png`, alt: '', class: 'pic' }),
+        h('span', { class: 'price' }, icon('coin_gold', 24), h('span', {}, String(this.sim.buildCost(i as TowerKind))))),
+      [Math.round(87 + i * 112.67), 18, 100, 148]);
+      card.title = `${t.name} (${i + 1}): ${t.blurb}`;
+      card.addEventListener('click', () => (sfx('click-a'), this.setPlacing(i as TowerKind)));
+      return card;
     });
-    this.hud.preview = h('div', { class: 'wave-preview panel white' });
-    this.ui.append(abilities, h('div', { class: 'build-bar' }, ...this.buildButtons), h('div', { class: 'stage-dock' }, this.hud.preview, this.hud.call));
-    this.ui.append(h('div', { class: 'build-hint panel white' }, 'Pick a tower below and place it on open ground, then start the wave'));
+    hud.nextIcon = art('enemy_ghost', [-63, -7, 50, 50]);
+    hud.nextCount = text('', [-59, 48, 42, 24], 22);
+    hud.nextTab = h('div', { class: 'tab-group' }, art('tab_tokens_red', [-82, 4, 84, 84]), hud.nextIcon, hud.nextCount);
+    const tray = h('div', { class: 'tray' },
+      art('cable_elbow_teal', [-70, 47, 72, 72], 'decor tab-group'),
+      art('cable_curve_brown', [442, 78, 240, 72], 'decor tab-group'),
+      art('panel_inventory_red', [0, 0, 500, 180]),
+      hud.nextTab,
+      h('div', { class: 'tab-group' }, art('tab_towers_red', [496, 1, 84, 84]), art('wrench', [512, -10, 51, 51]), text('TOWERS', [503, 49, 71, 23], 19)),
+      ...this.buildButtons);
+    this.ui.append(left, right, tray);
+    this.showHint('Pick a tower card, place it on open ground, then start the wave');
+  }
+
+  /** One hint at a time, on a wood plank under the top bar. */
+  private showHint(text: string | null): void {
+    this.hud.hint?.remove();
+    this.hud.hint = undefined;
+    if (!text) return;
+    const phone = matchMedia('(max-width: 640px)').matches;
+    this.hud.hint = toast(text, phone ? 1.15 : 1.6);
+    this.hud.hint.style.top = phone ? '88px' : '100px';
+    this.ui.append(this.hud.hint);
+  }
+
+  /** "<Saucer> is coming!" on the warning plank (recipe: banner at 34,132). */
+  private announceWave(w: number): void {
+    const plan = this.sim.wavePlan(w);
+    const kind = plan.bosses ? BOSS : plan.toughest;
+    const banner = h('div', { class: 'wave-announce' },
+      art('banner_warning_brown', [0, 0, 300, 128]),
+      art(plan.bosses ? 'boss' : 'enemy_ghost', [37, 44, 47, 47]),
+      text(ENEMY_NAMES[kind], [89, 49, 160, 31], 28),
+      text('IS COMING!', [89, 79, 160, 31], 28, { color: 'gold' }));
+    this.ui.append(banner);
+    setTimeout(() => banner.remove(), 2700);
   }
 
   private callWave(): void {
@@ -355,34 +413,53 @@ export class StageScreen implements Screen {
   private updateHud(): void {
     const { hud, sim } = this;
     setText(hud.lives!, `${Math.max(0, sim.lives)}`);
+    const heart = sim.lives <= 0 ? 'heart_empty' : sim.lives * 2 <= this.mods.lives ? 'heart_half' : 'heart_full';
+    if (!hud.heart!.classList.contains(`sw-${heart}`)) hud.heart!.className = `sw sw-${heart} icon`;
     setText(hud.gold!, formatNumber(sim.gold));
-    setText(hud.wave!, sim.waitingForStart ? `0 / ${sim.totalWaves}` : `${sim.wave + 1} / ${sim.totalWaves}`);
+    const shownWave = sim.waitingForStart ? 0 : sim.wave + 1;
+    setText(hud.wave!, `${shownWave}/${sim.totalWaves}`);
+    this.waveBar!.set(sim.waveProgress);
     const pausing = !sim.waitingForStart && sim.canCallWave;
-    setText(hud.waveNote!, pausing ? `in ${Math.ceil(Math.max(0, sim.pauseTimer))}s` : '');
-    if (!sim.waitingForStart) this.ui.querySelector('.build-hint')?.remove();
+    setText(hud.waveNote!, sim.waitingForStart ? 'GET READY'
+      : pausing ? `NEXT WAVE IN ${Math.ceil(Math.max(0, sim.pauseTimer))}S` : `WAVE ${shownWave}`);
+    if (shownWave !== this.announcedWave && !sim.waitingForStart) {
+      this.announcedWave = shownWave;
+      this.announceWave(sim.wave);
+    }
+    if (!sim.waitingForStart && this.hud.hint && this.placing === null && !this.armedMeteor) this.showHint(null);
+
     const call = hud.call!;
     call.style.visibility = sim.canCallWave ? '' : 'hidden';
-    if (sim.canCallWave) setText(call, sim.waitingForStart ? 'Start wave' : `Call wave +${sim.earlyCallBonus}`);
-    // Preview of the next wave: size, toughest saucer, and any boss.
-    const preview = hud.preview!;
-    preview.style.visibility = sim.canCallWave ? '' : 'hidden';
     if (sim.canCallWave) {
-      const w = sim.waitingForStart ? 0 : sim.wave + 1;
-      const key = `${w}`;
-      if (preview.dataset.wave !== key) {
-        preview.dataset.wave = key;
-        const plan = sim.wavePlan(w);
-        const ufo = (t: number) => h('img', { src: `models/kenney-td/Previews/${ENEMY_MODELS[t]}.png`, alt: '' });
-        preview.replaceChildren(
-          h('span', { class: 'label' }, `Wave ${w + 1}`),
-          h('span', {}, `${plan.count}`), ufo(plan.toughest),
-          ...(plan.bosses ? [h('span', { class: 'boss-tag' }, ufo(BOSS), plan.bosses > 1 ? `Boss ×${plan.bosses}` : 'Boss')] : []));
-      }
+      const text = sim.waitingForStart ? 'START WAVE' : `NEXT WAVE +${sim.earlyCallBonus}`;
+      if (hud.callLabel!.textContent !== text) hud.callLabel!.textContent = text;
+      const want = sim.waitingForStart ? 'swb-primary_red' : 'swb-warning_amber';
+      const other = sim.waitingForStart ? 'swb-warning_amber' : 'swb-primary_red';
+      if (!call.classList.contains(want)) call.classList.replace(other, want);
     }
-    this.buildButtons.forEach((b, i) => (b.disabled = sim.gold < sim.buildCost(i as TowerKind) && this.placing !== i));
+    // Left tab: size of the next wave while it can be called, otherwise saucers still to come in this one.
+    const w = sim.canCallWave ? (sim.waitingForStart ? 0 : sim.wave + 1) : sim.wave;
+    const plan = sim.wavePlan(w);
+    const count = sim.canCallWave ? plan.count + plan.bosses : sim.enemiesLeft;
+    setText(hud.nextCount!, String(count));
+    const want = plan.bosses ? 'sw-boss' : 'sw-enemy_ghost';
+    if (!hud.nextIcon!.classList.contains(want)) hud.nextIcon!.classList.replace(plan.bosses ? 'sw-enemy_ghost' : 'sw-boss', want);
+    const tip = sim.canCallWave
+      ? `Wave ${w + 1}: ${plan.count} saucers${plan.bosses ? ` + ${plan.bosses} boss` : ''}`
+      : `${count} saucers left in this wave`;
+    if (hud.nextTab!.title !== tip) hud.nextTab!.title = tip;
+
+    this.buildButtons.forEach((card, i) => {
+      const kind = i as TowerKind;
+      card.disabled = sim.gold < sim.buildCost(kind) && this.placing !== kind;
+      const selected = this.placing === kind;
+      card.classList.toggle('selected', selected);
+      const want = selected ? 'sw-card_tower_selected' : 'sw-card_tower_empty';
+      if (!card.classList.contains(want)) card.classList.replace(selected ? 'sw-card_tower_empty' : 'sw-card_tower_selected', want);
+    });
     if (this.placing !== null && sim.gold < sim.buildCost(this.placing)) this.setPlacing(null);
-    if (hud.meteor) setText(hud.meteor, this.cooldowns.meteor > 0 ? `${Math.ceil(this.cooldowns.meteor)}s` : '');
-    if (hud.freeze) setText(hud.freeze, this.cooldowns.freeze > 0 ? `${Math.ceil(this.cooldowns.freeze)}s` : '');
+    if (hud.meteor) setText(hud.meteor, this.cooldowns.meteor > 0 ? `${Math.ceil(this.cooldowns.meteor)}` : '');
+    if (hud.freeze) setText(hud.freeze, this.cooldowns.freeze > 0 ? `${Math.ceil(this.cooldowns.freeze)}` : '');
     this.panel?.refresh();
   }
 
@@ -394,11 +471,7 @@ export class StageScreen implements Screen {
     this.closePanel();
     this.setPlacing(null);
     this.hud.meteor?.parentElement?.classList.toggle('armed', this.armedMeteor);
-    this.hud.aim?.remove();
-    if (this.armedMeteor) {
-      this.hud.aim = h('div', { class: 'aim-hint panel white title', style: 'font-size: 13px' }, 'Tap the map to drop the meteor');
-      this.ui.append(this.hud.aim);
-    }
+    this.showHint(this.armedMeteor ? 'Tap the map to drop the meteor · Esc cancels' : null);
   }
 
   private castFreeze(): void {
@@ -463,14 +536,12 @@ export class StageScreen implements Screen {
       this.armedMeteor = false;
       this.hud.meteor?.parentElement?.classList.remove('armed');
     }
-    this.buildButtons.forEach((b, i) => b.classList.toggle('active', i === kind));
-    this.hud.aim?.remove();
-    this.ui.querySelector<HTMLElement>('.build-hint')?.style.setProperty('visibility', kind !== null ? 'hidden' : 'visible');
     if (kind !== null) {
       const touch = matchMedia('(pointer: coarse)').matches;
-      this.hud.aim = h('div', { class: 'aim-hint panel white title' },
-        touch ? `Tap open ground to place the ${TOWER_KINDS[kind].name}, tap again to confirm` : `Click open ground to place the ${TOWER_KINDS[kind].name} · Shift keeps placing · Esc cancels`);
-      this.ui.append(this.hud.aim);
+      const name = TOWER_KINDS[kind].name;
+      this.showHint(touch ? `Tap open ground for the ${name}, tap again to build` : `Click open ground to build the ${name} · Shift keeps building · Esc cancels`);
+    } else {
+      this.showHint(this.sim.waitingForStart ? 'Pick a tower card, place it on open ground, then start the wave' : null);
     }
   }
 
@@ -509,7 +580,8 @@ export class StageScreen implements Screen {
       this.setGhostCell(this.pickCell(ray));
       this.hoveredPad = -1;
     } else {
-      this.hoveredPad = this.armedMeteor ? -1 : this.pickPad(ray);
+      const pad = this.armedMeteor ? -1 : this.pickPad(ray);
+      this.hoveredPad = pad >= 0 && this.sim.tKind[pad] >= 0 ? pad : -1;
     }
     this.game.app.canvas.style.cursor = this.hoveredPad >= 0 || this.armedMeteor || this.placing !== null ? 'pointer' : '';
   }
@@ -551,13 +623,27 @@ export class StageScreen implements Screen {
     }
 
     const pad = this.pickPad(ray);
-    if (pad < 0 || pad === this.panel?.pad) this.closePanel();
-    else this.openPanel(pad);
+    if (pad < 0 || pad === this.panel?.pad) {
+      this.closePanel();
+    } else if (this.sim.tKind[pad] < 0) {
+      // Open ground: building starts from the tower cards.
+      this.closePanel();
+      sfx('tap-b', 0.3);
+      this.showHint('Pick a tower card below, then tap open ground');
+    } else {
+      this.openPanel(pad);
+    }
   }
 
   private handleKey(e: KeyboardEvent): void {
     if (this.mode.kind !== 'campaign' || this.finished) return;
-    if (e.key === 'Escape') {
+    if (this.closePause) {
+      if (e.key === 'Escape' || e.key.toLowerCase() === 'p') this.closePause();
+      return;
+    }
+    if (e.key.toLowerCase() === 'p') {
+      this.openPause();
+    } else if (e.key === 'Escape') {
       if (this.armedMeteor) this.armMeteor();
       this.setPlacing(null);
       this.closePanel();
@@ -576,7 +662,6 @@ export class StageScreen implements Screen {
     sfx('tap-a', 0.35);
     this.panel = new TowerPanel(this, pad, () => this.closePanel());
     this.ui.append(this.panel.el);
-    this.panel.place();
   }
 
   closePanel(): void {
@@ -592,21 +677,36 @@ export class StageScreen implements Screen {
 
   // --- Flow ---
 
-  private confirmRetreat(): void {
+  /** Pause menu (the pack's pause recipe): audio settings, restart and exit. The game is frozen while it is open. */
+  private openPause(): void {
+    if (this.closePause || this.finished || this.mode.kind !== 'campaign') return;
     this.paused = true;
-    const close = modal(this.ui, h('div', { class: 'results' },
-      h('h2', {}, 'Retreat?'),
-      h('p', { class: 'sub' }, 'You will lose this battle and earn nothing.'),
-      h('div', { class: 'actions' },
-        button('Keep fighting', () => close(), 'green'),
-        button('Retreat', () => this.game.goToWorld((this.mode as { stage: StageDef }).stage), 'red'))),
-    () => (this.paused = false));
+    this.closePanel();
+    this.setPlacing(null);
+    const { stage, difficulty } = this.mode;
+    this.closePause = paperMenu(this.ui, 'PAUSE', [
+      {
+        label: 'RESTART', family: 'blue', icon: 'restart',
+        onClick: () => confirmDialog(this.ui, 'RESTART BATTLE?', 'Your towers and gold will be reset.', 'RESTART',
+          () => this.game.goToStage(stage, difficulty)),
+      },
+      {
+        label: 'EXIT', family: 'amber', icon: 'arrow_left',
+        onClick: () => confirmDialog(this.ui, 'LEAVE BATTLE?', 'You will lose this battle and earn nothing.', 'LEAVE',
+          () => this.game.goToWorld(stage)),
+      },
+    ], () => {
+      this.paused = false;
+      this.closePause = null;
+    });
   }
 
   private finish(): void {
     if (this.mode.kind !== 'campaign' || this.finished) return;
     this.finished = true;
     this.closePanel();
+    this.setPlacing(null);
+    this.showHint(null);
     const { stage, difficulty } = this.mode;
     const won = this.sim.status === 'won';
     const earnedStars = won ? starsFor(this.sim.lives, this.mods.lives) : 0;
@@ -616,16 +716,18 @@ export class StageScreen implements Screen {
     this.game.profile.recordClear(stage, earnedStars, reward);
     sfx(won ? 'switch-a' : 'tap-b');
 
-    const content = h('div', { class: 'results' },
-      h('h2', {}, won ? 'Victory!' : 'Defeated'),
-      h('p', { class: 'sub' }, `${stage.name} · ${DIFFICULTY[difficulty].label}`),
-      stars(earnedStars),
-      h('div', { class: 'reward' }, '+', formatNumber(reward), crystal()),
-      won && firstClear ? h('p', { class: 'sub' }, 'First clear bonus included') : null,
-      h('p', { class: 'sub' }, `${formatNumber(this.sim.kills)} saucers downed · ${this.sim.leaked} slipped through`),
+    const content = h('div', { style: 'display: flex; flex-direction: column; align-items: center' },
+      h('div', { style: 'margin-bottom: -40px; z-index: 1' }, titleBanner(won ? 'VICTORY!' : 'DEFEATED', won ? 'red' : 'blue', 0.75, 44)),
+      framed('panel_results_wood', 1.05, { class: 'results' },
+        h('div', { style: 'font-size: 18px; color: var(--ink-soft)' }, `${stage.name.toUpperCase()} · ${DIFFICULTY[difficulty].label.toUpperCase()}`),
+        stars(earnedStars, 3, 56),
+        h('div', { class: 'reward' }, '+', amount(formatNumber(reward), 'gem', 40)),
+        won && firstClear ? h('div', { class: 'note' }, 'First clear bonus included') : null,
+        h('div', { class: 'note' }, `${formatNumber(this.sim.kills)} saucers downed`),
+        h('div', { class: 'note' }, `${this.sim.leaked} slipped through`)),
       h('div', { class: 'actions' },
-        button('Retry', () => this.game.goToStage(stage, difficulty), 'grey'),
-        button('World Map', () => this.game.goToWorld(stage), 'green')),
+        button('RETRY', () => this.game.goToStage(stage, difficulty), { family: 'blue', icon: 'restart' }),
+        button('CONTINUE', () => this.game.goToWorld(stage), { family: 'red', icon: 'arrow_right' })),
     );
     setTimeout(() => modal(this.ui, content, undefined, false), 600);
   }
@@ -723,7 +825,6 @@ export class StageScreen implements Screen {
 
     if (this.mode.kind === 'campaign') {
       this.updateHud();
-      this.panel?.place();
       if (this.sim.status !== 'running') this.finish();
     }
   }
@@ -908,8 +1009,4 @@ export class StageScreen implements Screen {
 
 function setText(el: HTMLElement, text: string): void {
   if (el.textContent !== text) el.textContent = text;
-}
-
-export function iconLabel(icon: string, text: string): HTMLElement {
-  return h('span', { style: 'display: contents' }, h('img', { src: `models/kenney-td/Previews/${icon}.png`, alt: '' }), text);
 }

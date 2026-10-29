@@ -11,10 +11,13 @@ npm run dev          # http://localhost:5173
 ```
 
 URL options: `?webgl` forces the WebGL2 backend, `?noshadow` turns shadows off,
-`?debug` exposes `window.__game` (profile, current screen, sim), and `?bench&n=5000`
-opens the perf stress test.
+`?debug` exposes `window.__game` (profile, current screen, sim), `?notitle` skips the
+title screen, and `?bench&n=5000` opens the perf stress test.
 
 ## Screens
+
+**Title.** Doubles as the loading screen: the name on a red banner over turning gears,
+with a progress bar that becomes PLAY! and SETTINGS once the game has loaded.
 
 **World map (main screen).** A diorama island holding five themed regions:
 Greenhollow, Sunscar Dunes, Frostpeak, Emberforge and Umbral Spire.
@@ -67,18 +70,18 @@ rotates, and the wheel (pinch) zooms.
 
 - **Battle feedback:** health bars show over damaged saucers, and bosses always show
   one. The last wave of every stage ends with a boss (two on an area's final stage):
-  huge health, costs 5 lives, pays 150 gold. A preview above the wave button shows the
-  next wave's size, its toughest saucer and any boss.
+  huge health, costs 5 lives, pays 150 gold. A warning plank names the saucer that's
+  coming, and the tab on the left of the card tray shows the next wave's size (a boss
+  icon when one is in it).
 - **Build anywhere open:** towers go on any tile that isn't road or covered by
   trees, rocks or crystals. Tiles next to the road are always open.
 - **Placing mode:** pick Cannon (100), Ballista (80) or Turret (65) in the build
   bar, or press 1, 2 or 3. A see-through ghost tower and its range circle follow the
   pointer, green where it can go and red where it can't, and brackets mark open
   tiles near the pointer. Click to build; Shift keeps placing, Esc cancels. On touch, the first
-  tap shows the ghost and range, and a second tap on the same tile builds. Tapping
-  an open tile outside placing mode opens a quick build menu with range previews.
-- **Upgrade:** tap a tower for its panel. It shows current → next damage, range and
-  fire rate. Towers go up to level 3, and each level changes the tower's model
+  tap shows the ghost and range, and a second tap on the same tile builds.
+- **Upgrade:** tap a tower for its info panel (docked on the right). It shows current
+  → next damage, range and fire rate. Towers go up to level 3, and each level changes the tower's model
   stack. Hotkey: U.
 - **Sell:** gives back 70% of everything spent on the tower (more with Salvage
   Crew). Hotkey: S.
@@ -86,8 +89,9 @@ rotates, and the wheel (pinch) zooms.
 - **Economy:** gold comes from kills (4–14 by enemy type), a bonus once a wave
   finishes spawning, and calling the next wave early (+2 gold per second skipped).
   Waves also start on their own after a 12 s pause. Space calls the wave.
-- **Also on screen:** a 1×/2× speed toggle, Retreat, the Meteor (tap the map) and
-  Freeze abilities if you own them, and a results screen with stars and crystals.
+- **Also on screen:** a 1×/2× speed toggle, the pause menu (audio, restart, exit; P or
+  Esc), the Meteor (tap the map) and Freeze abilities if you own them, and a results
+  screen with stars and crystals.
 - Enemies get 10% more health with each wave. Starting gold and enemy health both
   scale along the campaign.
 
@@ -103,9 +107,27 @@ src/
   engine/              app/screen loop, GLB loading, instancing, static batching, tile helpers, themes
   meta/                catalog (areas, stages, shop items) and profile (save + upgrade modifiers)
   world/               world map screen, layout generator, shop modal
-  stage/               stage screen, tower popover, tower rules, map builder, fixed-step simulation, bench HUD
-  ui/                  theme.css (Kenney UI Pack) and DOM helpers
+  stage/               stage screen, tower info panel, tower rules, map builder, fixed-step simulation, bench HUD
+  ui/                  theme.css + generated scrapworks.css, DOM/recipe helpers, title screen, paper menus
 ```
+
+## UI
+
+The UI uses the **Scrapworks UI** pack with **Passion One Bold** for all display text.
+
+- `python3 tools/import-scrapworks.py <dir with 1x/ 2x/> <manifest.json>` copies the
+  pack's PNGs to `assets/ui/scrapworks/` unchanged and writes `src/ui/scrapworks.css`:
+  one class per sprite holding its manifest size, label-safe rect, slice insets and an
+  `image-set()` of the 1x/2x files. It also makes the gold/dim stars and dark-brown
+  (`_ink`) versions of the cream icons for use on paper.
+- Elements are sized by `--k` (1 = the 1x size). Plank buttons are 9-sliced with the
+  manifest insets; paper and wood panels scale uniformly.
+- The title screen, the pause/settings menu and the battle HUD follow the pack's
+  layout recipes: `at()`, `art()`, `text()` and `rectButton()` in `src/ui/dom.ts` place
+  elements at the recipes' pixel rects. Modal recipes zoom to fit the viewport; the
+  HUD scales with `--hz` / `--tz` (smaller on phones, larger on big screens).
+- Tower card art is rendered from the towers' own 3D models:
+  `npm run bench:previews` writes `assets/ui/towers/<kind>.png`.
 
 ## Performance notes (Phase 0)
 
@@ -155,8 +177,10 @@ shadows are needed before large hordes on low-end devices.
 
 ## Assets
 
-Both packs are Kenney, CC0:
-- `assets/models/kenney-td/`: Tower Defense Kit (models, preview icons, palettes)
-- `assets/ui/kenney-ui/`: UI Pack (sprites, fonts, sounds)
+- `assets/models/kenney-td/`: Kenney Tower Defense Kit, CC0 (models, preview icons, palettes)
+- `assets/ui/kenney-ui/`: Kenney UI Pack, CC0 (only its click/switch sounds are used now)
+- `assets/ui/scrapworks/`: Scrapworks UI pack (see its `LICENSE-NOTE.txt`)
+- `assets/ui/fonts/`: Passion One Bold, SIL Open Font License (`PassionOne-OFL.txt`)
+- `assets/ui/towers/`: tower card art rendered from the Kenney models
 
 Theme palettes are generated with `python3 tools/gen-palettes.py`.

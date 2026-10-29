@@ -1,19 +1,17 @@
-import { button, formatNumber, h } from '../ui/dom';
+import { amount, art, at, closeTab, formatNumber, framed, h, icon, rectButton, sfx, text } from '../ui/dom';
 import type { StageScreen } from './stage-screen';
 import { MAX_TOWER_LEVEL, TARGETING, TOWER_KINDS, type Targeting, type TowerKind } from './towers';
 
-const PREVIEW = 'models/kenney-td/Previews/';
-
 /**
- * Popover pinned above a build pad: the build menu for an empty pad, or the
- * tower's stats, targeting, upgrade and sell actions. Prices re-check
- * affordability every frame as gold comes in.
+ * Info panel for a built tower, docked on the right as in the pack's tower-HUD
+ * recipe: the dark tooltip with name, blurb, stats and the sell plate, with the
+ * upgrade button and targeting plate hung underneath. Affordability is re-checked
+ * every frame as gold comes in.
  */
 export class TowerPanel {
-  readonly el = h('div', { class: 'tower-pop panel white interactive' });
+  readonly el = h('div', { class: 'tower-info interactive' });
   private renderedKey = '';
-  /** Buttons whose enabled state depends on gold, with the price they need. */
-  private priced: { btn: HTMLButtonElement; cost: () => number | null }[] = [];
+  private upgradeBtn: HTMLButtonElement | null = null;
 
   constructor(private readonly screen: StageScreen, readonly pad: number, private readonly close: () => void) {
     this.refresh();
@@ -23,118 +21,79 @@ export class TowerPanel {
     return this.screen.sim;
   }
 
-  /** Re-renders when the pad's tower changes; otherwise just updates affordability. */
+  /** Re-renders when the tower changes; otherwise just updates affordability. */
   refresh(): void {
-    const key = `${this.sim.tKind[this.pad]}:${this.sim.tLevel[this.pad]}:${this.sim.tTargeting[this.pad]}`;
+    const { sim, pad } = this;
+    const key = `${sim.tKind[pad]}:${sim.tLevel[pad]}:${sim.tTargeting[pad]}`;
     if (key !== this.renderedKey) {
       this.renderedKey = key;
-      this.priced = [];
-      this.el.replaceChildren(...(this.sim.tKind[this.pad] < 0 ? this.buildMenu() : this.towerInfo()));
+      this.render();
     }
-    for (const { btn, cost } of this.priced) {
-      const c = cost();
-      btn.disabled = c === null || c > this.sim.gold;
-    }
-  }
-
-  /** Keeps the popover above the pad, inside the viewport. */
-  place(): void {
-    const s = this.sim;
-    const p = this.screen.project(s.tX[this.pad], this.screen.towerTop(this.pad) + 0.6, s.tZ[this.pad]);
-    const w = this.el.offsetWidth, hgt = this.el.offsetHeight;
-    const x = Math.min(innerWidth - w - 8, Math.max(8, p.x - w / 2));
-    let y = p.y - hgt - 8;
-    if (y < 64) y = this.screen.project(s.tX[this.pad], 0, s.tZ[this.pad]).y + 24; // no room above: show below the pad
-    y = Math.min(innerHeight - hgt - 8, Math.max(8, y));
-    this.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    const cost = sim.upgradeCost(pad);
+    if (this.upgradeBtn) this.upgradeBtn.disabled = cost === null || cost > sim.gold;
   }
 
   handleKey(key: string): void {
-    const kind = this.sim.tKind[this.pad];
-    if (kind < 0 && ['1', '2', '3'].includes(key)) this.build((Number(key) - 1) as TowerKind);
-    else if (kind >= 0 && key.toLowerCase() === 'u') this.upgrade();
-    else if (kind >= 0 && key.toLowerCase() === 's') this.sell();
+    if (key.toLowerCase() === 'u') this.upgrade();
+    else if (key.toLowerCase() === 's') this.sell();
   }
 
-  private header(title: string, icon?: string): HTMLElement {
-    return h('div', { class: 'pop-head' },
-      icon ? h('img', { src: icon, alt: '' }) : null,
-      h('span', { class: 'title' }, title),
-      h('button', { class: 'pop-close', title: 'Close (Esc)', onclick: () => this.close() }, '×'));
-  }
-
-  private buildMenu(): HTMLElement[] {
-    const options = TOWER_KINDS.map((t, i) => {
-      const kind = i as TowerKind;
-      const cost = () => this.sim.buildCost(kind);
-      const btn = h('button', {
-        class: 'build-option',
-        onclick: () => this.build(kind),
-        onmouseenter: () => (this.screen.previewKind = kind),
-        onmouseleave: () => (this.screen.previewKind = null),
-      },
-      h('img', { src: `${PREVIEW}${t.weapon}.png`, alt: '' }),
-      h('span', { class: 'name' }, t.name, h('kbd', {}, String(i + 1))),
-      h('span', { class: 'blurb' }, t.blurb),
-      h('span', { class: 'price' }, h('span', { class: 'coin' }), formatNumber(cost())));
-      this.priced.push({ btn, cost });
-      return btn;
-    });
-    return [this.header('Build tower'), h('div', { class: 'build-options' }, ...options)];
-  }
-
-  private towerInfo(): HTMLElement[] {
+  private render(): void {
     const { sim, pad } = this;
     const kind = sim.tKind[pad] as TowerKind;
+    if (kind < 0) {
+      this.close();
+      return;
+    }
     const level = sim.tLevel[pad];
     const t = TOWER_KINDS[kind];
     const now = sim.statsFor(kind, level);
     const next = level < MAX_TOWER_LEVEL ? sim.statsFor(kind, level + 1) : null;
 
-    const pips = h('span', { class: 'pips' });
-    for (let i = 0; i < MAX_TOWER_LEVEL; i++) pips.append(h('span', { class: `pip${i < level ? ' on' : ''}` }));
-    const row = (label: string, cur: number, nxt: number | undefined, fmt: (v: number) => string) =>
-      [h('dt', {}, label), h('dd', {}, fmt(cur), nxt !== undefined ? h('span', { class: 'next' }, ` → ${fmt(nxt)}`) : null)];
+    const levelStars = h('span', { class: 'stars' });
+    for (let i = 0; i < MAX_TOWER_LEVEL; i++) levelStars.append(icon(i < level ? 'star_gold' : 'star_dim', 18));
+    const stat = (row: number, label: string, cur: number, nxt: number | undefined, fmt: (v: number) => string) =>
+      at(h('div', { class: 'stat' }, h('span', {}, label),
+        h('span', {}, fmt(cur), nxt !== undefined ? h('span', { class: 'next' }, ` → ${fmt(nxt)}`) : null)), [27, 132 + row * 22, 154, 20]);
 
-    const targeting = h('div', { class: 'segmented' }, ...TARGETING.map((m, i) =>
-      button(m.label, () => {
-        sim.setTargeting(pad, i as Targeting);
-        this.refresh();
-      }, `small${sim.tTargeting[pad] === i ? ' active' : ''}`)));
-    targeting.querySelectorAll('button').forEach((b, i) => (b.title = TARGETING[i].hint));
-
-    const upgradeCost = () => sim.upgradeCost(pad);
-    const upgrade = next
-      ? button(h('span', { style: 'display: contents' }, 'Upgrade ', h('span', { class: 'coin' }), formatNumber(upgradeCost()!)), () => this.upgrade(), 'small yellow')
-      : h('button', { class: 'btn small grey', disabled: true }, 'Fully upgraded');
-    if (next) {
-      this.priced.push({ btn: upgrade, cost: upgradeCost });
-      upgrade.title = 'Upgrade (U)';
-      upgrade.addEventListener('mouseenter', () => (this.screen.previewKind = kind));
-      upgrade.addEventListener('mouseleave', () => (this.screen.previewKind = null));
+    // Upgrade button and targeting plate hang under the panel.
+    const cost = sim.upgradeCost(pad);
+    this.upgradeBtn = rectButton('amber', [0, 266, 204, 75], () => this.upgrade(),
+      cost === null
+        ? text('MAXED', [24, 18, 156, 37], 30)
+        : text(h('span', { class: 'amount' }, icon('arrow_up', 30), amount(formatNumber(cost), 'coin', 26)), [20, 18, 164, 37], 30));
+    this.upgradeBtn.title = cost === null ? 'Fully upgraded' : 'Upgrade (U)';
+    if (cost !== null) {
+      this.upgradeBtn.addEventListener('mouseenter', () => (this.screen.previewKind = kind));
+      this.upgradeBtn.addEventListener('mouseleave', () => (this.screen.previewKind = null));
     }
-    const sell = button(h('span', { style: 'display: contents' }, 'Sell +', formatNumber(sim.sellValue(pad))), () => this.sell(), 'small red');
+    this.upgradeBtn.disabled = cost === null || cost > sim.gold;
+
+    const mode = sim.tTargeting[pad];
+    const target = at(framed('dropdown_plate', 204 / 240, { tag: 'button', class: 'target' }, `TARGET: ${TARGETING[mode].label.toUpperCase()}`),
+      [0, 339, 204, 54]);
+    target.title = `${TARGETING[mode].hint} — click to change`;
+    target.addEventListener('click', () => {
+      sfx('click-a');
+      sim.setTargeting(pad, ((mode + 1) % TARGETING.length) as Targeting);
+      this.refresh();
+    });
+
+    const sell = at(h('button', { class: 'sell-plate sw fit sw-price_plate_burgundy' },
+      text('SELL', [12, 8, 55, 26], 23), art('coin_gold', [76, 9, 21, 23]), text(formatNumber(sim.sellValue(pad)), [100, 8, 44, 26], 23, { align: 'left' })),
+    [25, 204, 157, 43]);
     sell.title = 'Sell (S)';
+    sell.addEventListener('click', () => this.sell());
 
-    return [
-      this.header(`${t.name}`, `${PREVIEW}${t.weapon}.png`),
-      h('div', { class: 'pop-level' }, h('span', { class: 'label' }, `Level ${level}`), pips),
-      h('dl', { class: 'pop-stats' },
-        ...row('Damage', now.damage, next?.damage, (v) => formatNumber(v)),
-        ...row('Range', now.range, next?.range, (v) => v.toFixed(1)),
-        ...row('Fire rate', 1 / now.cooldown, next ? 1 / next.cooldown : undefined, (v) => `${v.toFixed(1)}/s`),
-        ...(now.splash > 0 ? [h('dt', {}, 'Splash'), h('dd', {}, now.splash.toFixed(1))] : [])),
-      h('div', { class: 'label' }, 'Targeting'),
-      targeting,
-      h('div', { class: 'pop-actions' }, upgrade, sell),
-    ];
-  }
-
-  private build(kind: TowerKind): void {
-    if (!this.sim.build(this.pad, kind)) return;
-    this.screen.previewKind = null;
-    this.screen.towerChanged('built');
-    this.refresh();
+    this.el.replaceChildren(
+      art('panel_tooltip_brown', [0, 0, 204, 260]),
+      closeTab(() => this.close(), [162, 2, 40, 44]),
+      text(h('span', { class: 'name' }, t.name.toUpperCase(), levelStars), [18, 37, 169, 33], 23),
+      text(t.blurb, [23, 77, 159, 40], 14, { body: true }),
+      stat(0, 'DAMAGE', now.damage, next?.damage, (v) => formatNumber(v)),
+      stat(1, 'RANGE', now.range, next?.range, (v) => v.toFixed(1)),
+      stat(2, 'RATE', 1 / now.cooldown, next ? 1 / next.cooldown : undefined, (v) => `${v.toFixed(1)}/S`),
+      sell, this.upgradeBtn, target);
   }
 
   private upgrade(): void {

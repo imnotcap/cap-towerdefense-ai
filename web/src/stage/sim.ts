@@ -373,6 +373,19 @@ export class Sim {
     return this.waitingForStart || (this.toSpawn === 0 && this.wave < this.totalWaves - 1);
   }
 
+  /** 0–1 through the stage: finished waves plus how much of the current wave has spawned. */
+  get waveProgress(): number {
+    if (!this.config.waves || this.waitingForStart) return 0;
+    const plan = this.wavePlan(this.wave);
+    const total = plan.count + plan.bosses;
+    return Math.min(1, (this.wave + (total - this.toSpawn) / total) / this.totalWaves);
+  }
+
+  /** Saucers on the field plus those still to spawn this wave. */
+  get enemiesLeft(): number {
+    return this.toSpawn + this.activeEnemies;
+  }
+
   /** Gold for calling the next wave now instead of waiting out the pause. */
   get earlyCallBonus(): number {
     return this.waitingForStart ? 0 : Math.ceil(Math.max(0, this.pauseTimer) * EARLY_CALL_GOLD);

@@ -11,10 +11,12 @@ import { MAP_MODELS } from './stage/map';
 import { AMMO_FOR_WEAPON, WEAPON_TYPES } from './stage/sim';
 import { ENEMY_MODELS, STAGE_EXTRA_MODELS, StageScreen } from './stage/stage-screen';
 import { TOWER_MODELS } from './stage/towers';
-import { hideLoading, setLoadingMessage, setLoadingProgress } from './ui/dom';
+import { settingsMenu } from './ui/menus';
+import { TitleScreen } from './ui/title';
 import { WORLD_MODELS, WorldScreen } from './world/world-screen';
 
 const params = new URLSearchParams(location.search);
+const title = new TitleScreen();
 
 async function main() {
   const app = await App.create({ forceWebGL: params.has('webgl'), shadows: !params.has('noshadow') });
@@ -23,10 +25,10 @@ async function main() {
     ...MAP_MODELS, ...GATE_MODELS, ...ENEMY_MODELS, ...TOWER_MODELS, ...WEAPON_TYPES, ...AMMO_FOR_WEAPON,
     ...STAGE_EXTRA_MODELS, ...WORLD_MODELS,
   ]);
-  const models = await loadModels(Themes.withVariants([...names], SNOW_VARIANTS), setLoadingProgress);
+  const models = await loadModels(Themes.withVariants([...names], SNOW_VARIANTS), (done, total) => title.setProgress(done, total));
   const themes = new Themes(models);
   await themes.load();
-  setLoadingMessage('Building the world…');
+  title.setMessage('Building the world…');
 
   const profile = new Profile();
   let world: WorldScreen | null = null;
@@ -56,10 +58,11 @@ async function main() {
   } else {
     game.goToWorld();
   }
-  hideLoading();
+  if (params.has('bench') || params.has('notitle')) title.hide();
+  else title.ready(() => {}, () => settingsMenu(title.el, () => profile.reset()));
 }
 
 main().catch((err) => {
-  setLoadingMessage(`Failed to start: ${err}`);
+  title.setMessage(`Failed to start: ${err}`);
   console.error(err);
 });

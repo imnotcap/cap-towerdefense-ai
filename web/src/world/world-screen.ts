@@ -8,7 +8,10 @@ import type { ThemeId } from '../engine/themes';
 import { mulberry32, pathTile, tileGridCuller } from '../engine/tiles';
 import type { Game } from '../game';
 import { AREAS, DIFFICULTY, STAGES, stageReward, type AreaDef, type Difficulty, type StageDef } from '../meta/catalog';
-import { button, crystal, formatNumber, h, modal, sfx, stars } from '../ui/dom';
+import {
+  amount, button, counter, formatNumber, framed, h, icon, modal, sfx, squareButton, stars, titleBanner, withCloseTab,
+} from '../ui/dom';
+import { settingsMenu } from '../ui/menus';
 import { openShop } from './shop';
 import { WORLD_H, WORLD_W, buildWorldLayout, cellToWorld, type WorldLayout } from './layout';
 
@@ -288,18 +291,20 @@ export class WorldScreen implements Screen {
     this.resources.crystals = h('span');
     this.resources.stars = h('span');
     this.ui.append(
-      h('div', { class: 'world-title panel' }, h('h1', {}, 'Campaign'), h('p', {}, 'Drag to pan · scroll to zoom · right-drag to rotate')),
-      h('div', { class: 'resources' },
-        h('div', { class: 'panel' }, crystal(), this.resources.crystals),
-        h('div', { class: 'panel' }, h('span', { class: 'star-icon' }), this.resources.stars)),
+      h('div', { class: 'world-top' },
+        titleBanner('CAMPAIGN', 'red', 0.5, 30, 'title'),
+        h('div', { class: 'right' },
+          counter('gem_amber', this.resources.crystals),
+          counter('star_gold', this.resources.stars),
+          squareButton('settings', () => this.openSettings(), { class: 'interactive' }))),
+      h('div', { class: 'world-hint' }, 'Drag to pan · scroll to zoom · right-drag to rotate'),
       h('div', { class: 'world-dock' },
-        button('Play', () => this.openStage(profile.frontier), 'green big'),
-        button(h('span', { style: 'display: contents' }, h('img', { src: 'models/kenney-td/Previews/weapon-ballista.png', alt: '' }), 'Shop'),
-          () => openShop(this.ui, profile), 'yellow big')),
+        button('SHOP', () => openShop(this.ui, profile), { family: 'amber', size: 'lg', icon: 'coin_gold' }),
+        button('PLAY', () => this.openStage(profile.frontier), { family: 'red', size: 'lg', icon: 'play' })),
     );
 
     this.banners = AREAS.map((area, a) => {
-      const el = h('div', { class: 'banner interactive', onclick: () => (sfx('tap-a'), this.flyTo(this.areaCentre[a], 20)) });
+      const el = h('div', { class: 'area-tag interactive', onclick: () => (sfx('tap-a'), this.flyTo(this.areaCentre[a], 20)) });
       this.ui.append(el);
       return { area, pos: this.areaCentre[a].clone().setY(2.6), el };
     });
@@ -314,27 +319,35 @@ export class WorldScreen implements Screen {
   private refreshUi(): void {
     const { profile } = this.game;
     this.resources.crystals!.textContent = formatNumber(profile.crystals);
-    this.resources.stars!.textContent = `${profile.totalStars} / ${STAGES.length * 3}`;
+    this.resources.stars!.textContent = `${profile.totalStars}/${STAGES.length * 3}`;
     const frontier = profile.frontier;
 
     for (const b of this.banners) {
       const unlocked = profile.isAreaUnlocked(b.area);
-      b.el.classList.toggle('locked', !unlocked);
-      b.el.replaceChildren(h('div', { class: 'panel' },
-        h('div', { class: 'name' }, b.area.name),
-        h('div', { class: 'meta' }, h('span', { class: 'star-icon' }), `${profile.areaStars(b.area)} / 15`, ' · ', '★'.repeat(b.area.difficulty))));
+      const skulls = h('span', { class: 'stars' });
+      for (let i = 0; i < b.area.difficulty; i++) skulls.append(icon('skull', 18));
+      b.el.replaceChildren(
+        framed('hud_counter_brown', null, { class: 'plate' }, unlocked ? null : icon('lock_closed'), b.area.name.toUpperCase()),
+        h('div', { class: 'meta' }, h('span', { class: 'amount' }, icon('star_gold', 18), `${profile.areaStars(b.area)}/15`), skulls));
     }
     for (const m of this.markers) {
       const unlocked = profile.isUnlocked(m.stage);
       const got = profile.stars(m.stage.id);
-      m.el.className = `marker${got > 0 ? ' cleared' : ''}${unlocked ? '' : ' locked'}${m.stage === frontier && got === 0 ? ' frontier' : ''}`;
+      const isFrontier = m.stage === frontier && got === 0;
+      m.el.className = `marker${unlocked ? '' : ' locked'}${isFrontier ? ' frontier' : ''}`;
+      const color = !unlocked ? 'blue' : got > 0 ? 'amber' : isFrontier ? 'red' : 'blue';
       m.el.replaceChildren(
-        button(String(m.stage.index + 1), () => this.openStage(m.stage), 'round interactive'),
-        unlocked ? stars(got) : '',
+        squareButton(unlocked ? h('span', { class: 'sq-num' }, String(m.stage.index + 1)) : icon('lock_closed'),
+          () => this.openStage(m.stage), { color, class: 'interactive' }),
+        unlocked ? stars(got, 3, 16) : '',
       );
     }
     const f = this.nodePos[frontier.order];
     this.frontierRing.position.set(f.x, 0.14, f.z);
+  }
+
+  private openSettings(): void {
+    settingsMenu(this.ui, () => this.game.profile.reset());
   }
 
   private openStage(stage: StageDef): void {
@@ -342,44 +355,48 @@ export class WorldScreen implements Screen {
     this.flyTo(this.nodePos[stage.order], 13);
     if (!profile.isUnlocked(stage)) {
       const prev = STAGES[stage.order - 1];
-      const close = modal(this.ui, h('div', { class: 'stage-card' },
-        h('div', { class: 'area' }, stage.area.name),
-        h('h2', {}, stage.name),
-        h('p', { class: 'sub' }, `Locked. Clear “${prev.name}” to open this battle.`),
-        h('div', { class: 'actions' }, button('OK', () => close(), 'grey'))));
+      const close = modal(this.ui, h('div', {},
+        framed('panel_dialog_paper', 1, {},
+          h('div', { class: 'paper-text' }, icon('lock_closed_ink', 40), h('h2', { style: 'font-size: 30px' }, stage.name.toUpperCase()),
+            h('p', {}, `Clear “${prev.name}” to open this battle.`))),
+        h('div', { class: 'actions' }, button('OK', () => close(), { family: 'blue', size: 'sm' }))));
       return;
     }
 
     const best = profile.stars(stage.id);
-    const reward = h('dd');
+    const mods = profile.modifiers();
+    const reward = h('span');
     const segmented = h('div', { class: 'segmented' });
     const renderDifficulty = () => {
       segmented.replaceChildren(...(Object.keys(DIFFICULTY) as Difficulty[]).map((d) =>
-        button(DIFFICULTY[d].label, () => ((this.difficulty = d), renderDifficulty()), `small${d === this.difficulty ? ' active' : ''}`)));
-      const r = stageReward(stage, 3, this.difficulty, best === 0) * (1 + profile.modifiers().crystalBonus);
-      reward.replaceChildren(`up to ${formatNumber(r)} `, crystal());
+        button(DIFFICULTY[d].label.toUpperCase(), () => ((this.difficulty = d), renderDifficulty()),
+          { family: d === this.difficulty ? 'amber' : 'blue', size: 'sm' })));
+      const r = stageReward(stage, 3, this.difficulty, best === 0) * (1 + mods.crystalBonus);
+      reward.replaceChildren(amount(`up to ${formatNumber(r)}`, 'gem', 20));
     };
     renderDifficulty();
 
-    const mods = profile.modifiers();
-    const close = modal(this.ui, h('div', { class: 'stage-card' },
-      h('div', { class: 'area' }, `${stage.area.name} · Stage ${stage.index + 1}`),
-      h('h2', {}, stage.name),
-      h('p', { class: 'sub' }, stage.area.blurb),
-      stars(best),
-      h('dl', {},
-        h('dt', {}, 'Waves'), h('dd', {}, String(stage.waves.waves)),
-        h('dt', {}, 'Enemy toughness'), h('dd', {}, `×${stage.hpScale.toFixed(2)}`),
-        h('dt', {}, 'Your lives'), h('dd', {}, String(mods.lives)),
-        h('dt', {}, 'Starting gold'), h('dd', {}, formatNumber(stage.startGold + mods.bonusGold)),
-        h('dt', {}, 'Reward'), reward),
+    const stat = (label: string, value: Node | string) => h('div', {}, h('span', {}, label), h('span', {}, value));
+    const panel = framed('panel_settings_paper', 1.15, { class: 'stage-card' },
+      h('div', { class: 'card-body', style: 'height: 100%' },
+        h('div', { class: 'row', style: 'justify-content: space-between' },
+          h('span', { style: 'font-size: 17px; color: var(--ink-soft)' }, `${stage.area.name.toUpperCase()} · STAGE ${stage.index + 1}`),
+          stars(best, 3, 24)),
+        h('div', { class: 'blurb' }, stage.area.blurb),
+        h('div', { class: 'stats' },
+          stat('Waves', String(stage.waves.waves)),
+          stat('Toughness', `×${stage.hpScale.toFixed(1)}`),
+          stat('Lives', String(mods.lives)),
+          stat('Gold', formatNumber(stage.startGold + mods.bonusGold))),
+        h('div', { class: 'row', style: 'font-size: 17px' }, 'Reward', reward)));
+    const close = modal(this.ui, h('div', { style: 'display: flex; flex-direction: column; align-items: center' },
+      h('div', { style: 'margin-bottom: -46px; z-index: 1' }, titleBanner(stage.name.toUpperCase(), 'blue', 0.82, 34)),
+      withCloseTab(panel, () => close(), { right: 6, top: 44 }),
       segmented,
-      h('div', { class: 'actions' },
-        button('Close', () => close(), 'grey'),
-        button('Battle!', () => {
-          close();
-          this.game.goToStage(stage, this.difficulty);
-        }, 'green big'))));
+      button('BATTLE!', () => {
+        close();
+        this.game.goToStage(stage, this.difficulty);
+      }, { family: 'red', size: 'lg', icon: 'play' })));
   }
 
   // --- Camera ---

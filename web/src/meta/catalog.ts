@@ -116,9 +116,9 @@ const growth = (base: number, factor: number) => (level: number) => Math.round((
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
 const TOWERS = [
-  { key: 'cannon', name: 'Cannon', icon: 'weapon-cannon' },
-  { key: 'ballista', name: 'Ballista', icon: 'weapon-ballista' },
-  { key: 'turret', name: 'Turret', icon: 'weapon-turret' },
+  { key: 'cannon', name: 'Cannon' },
+  { key: 'ballista', name: 'Ballista' },
+  { key: 'turret', name: 'Turret' },
 ] as const;
 
 export const TOWER_DAMAGE_STEP = 0.12;
@@ -128,15 +128,15 @@ export const TOWER_RATE_STEP = 0.07;
 export const UPGRADES: readonly UpgradeDef[] = [
   ...TOWERS.flatMap((t): UpgradeDef[] => [
     {
-      id: `${t.key}-damage`, tab: 'towers', group: t.name, name: 'Damage', icon: PREVIEW + `${t.icon}.png`, maxLevel: 5,
+      id: `${t.key}-damage`, tab: 'towers', group: t.name, name: 'Damage', icon: `ui/towers/${t.key}.png`, maxLevel: 5,
       effect: (l) => `+${pct(l * TOWER_DAMAGE_STEP)} damage`, cost: growth(40, 1.55),
     },
     {
-      id: `${t.key}-range`, tab: 'towers', group: t.name, name: 'Range', icon: PREVIEW + `${t.icon}.png`, maxLevel: 5,
+      id: `${t.key}-range`, tab: 'towers', group: t.name, name: 'Range', icon: `ui/towers/${t.key}.png`, maxLevel: 5,
       effect: (l) => `+${pct(l * TOWER_RANGE_STEP)} range`, cost: growth(35, 1.5),
     },
     {
-      id: `${t.key}-rate`, tab: 'towers', group: t.name, name: 'Fire rate', icon: PREVIEW + `${t.icon}.png`, maxLevel: 5,
+      id: `${t.key}-rate`, tab: 'towers', group: t.name, name: 'Fire rate', icon: `ui/towers/${t.key}.png`, maxLevel: 5,
       effect: (l) => `+${pct(l * TOWER_RATE_STEP)} fire rate`, cost: growth(45, 1.6),
     },
   ]),

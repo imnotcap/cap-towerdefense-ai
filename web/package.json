@@ -10,7 +10,8 @@
     "bench": "node bench/run.mjs",
     "bench:sim": "tsx bench/sim-bench.ts",
     "bench:balance": "tsx bench/balance.ts",
-    "bench:maps": "tsx bench/maps.ts"
+    "bench:maps": "tsx bench/maps.ts",
+    "bench:previews": "node bench/previews/render.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"
