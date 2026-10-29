@@ -11,18 +11,25 @@ import { DIFFICULTY, starsFor, stageReward, type Difficulty, type StageDef } fro
 import type { Modifiers } from '../meta/profile';
 import { button, crystal, formatNumber, h, modal, sfx, stars } from '../ui/dom';
 import { BORDER, buildBorder } from './border';
-import { MAP_H, MAP_W, PATH_LAYOUTS, buildMap, buildTerrain, cellToWorld } from './map';
-import { AMMO_FOR_WEAPON, BASE_WEAPON_STATS, ENEMY_TYPES, MAX_PARTICLES, PARTICLE_DUST, Sim, TICK, WEAPON_TYPES } from './sim';
+import { Gates } from './gates';
+import { buildStressTowers } from './stress';
+import { HealthBars } from './health-bars';
+import { MAP_H, MAP_W, buildMap, buildTerrain, cellToWorld } from './map';
+import { AMMO_FOR_WEAPON, BASE_WEAPON_STATS, BOSS, ENEMY_TYPES, MAX_PARTICLES, PARTICLE_DUST, Sim, TICK, WEAPON_TYPES } from './sim';
 import { TowerPanel } from './tower-panel';
 import { TOWER_KINDS, TOWER_MODELS, TOWER_STACKS, type TowerKind } from './towers';
 
-export const ENEMY_MODELS = ['enemy-ufo-a', 'enemy-ufo-b', 'enemy-ufo-c', 'enemy-ufo-d'];
+/** One model per enemy type; the last is the boss. */
+export const ENEMY_MODELS = ['enemy-ufo-a', 'enemy-ufo-b', 'enemy-ufo-c', 'enemy-ufo-d', 'enemy-ufo-b-weapon'];
+const ENEMY_SCALE = [0.55, 0.55, 0.58, 0.62, 1.25];
 export const STAGE_EXTRA_MODELS = ['selection-a', 'weapon-ammo-boulder'];
 const MAX_ENEMIES = 10000;
 const ENEMY_SHADOW_LIMIT = 2500;
 /** Ember, gold (crits/upgrades), ice, build dust. */
 const SPARK_COLORS = [0xffb040, 0xffe066, 0x9fe4ff, 0xd9cbb0];
 const BUILD_ANIM_SECONDS = 0.45;
+/** Open-ground markers show within this many tiles of the placement ghost. */
+const BRACKET_RADIUS = 3.2;
 const TILE_TOP = 0.2;
 
 export type StageMode =
@@ -60,6 +67,8 @@ export class StageScreen implements Screen {
   private readonly border: THREE.Mesh;
   private readonly ghosts: THREE.Group[];
   private readonly ghostMaterial: THREE.MeshStandardMaterial;
+  private readonly healthBars: HealthBars;
+  private readonly gates: Gates;
   private readonly enemyCounts = new Int32Array(ENEMY_TYPES);
   private readonly weaponCounts = new Int32Array(WEAPON_TYPES.length);
   private readonly ammoCounts = new Int32Array(AMMO_FOR_WEAPON.length);
@@ -82,7 +91,7 @@ export class StageScreen implements Screen {
   private armedMeteor = false;
   private cooldowns = { meteor: 0, freeze: 0 };
   private hud: {
-    lives?: HTMLElement; gold?: HTMLElement; wave?: HTMLElement; waveNote?: HTMLElement; call?: HTMLButtonElement;
+    lives?: HTMLElement; gold?: HTMLElement; wave?: HTMLElement; waveNote?: HTMLElement; call?: HTMLButtonElement; preview?: HTMLElement;
     meteor?: HTMLElement; freeze?: HTMLElement; aim?: HTMLElement;
   } = {};
   private panel: TowerPanel | null = null;
@@ -109,7 +118,7 @@ export class StageScreen implements Screen {
     this.theme = campaign?.stage.area.theme ?? 'grass';
     const { themes, models } = game;
 
-    const map = buildMap(PATH_LAYOUTS[campaign?.stage.layout ?? 0], campaign?.stage.seed ?? 7);
+    const map = buildMap(campaign?.stage.seed ?? 7, this.theme);
     const pads = map.towerPads.length;
     for (const name of TOWER_MODELS) {
       const model = themes.model(name, this.theme);
@@ -133,13 +142,7 @@ export class StageScreen implements Screen {
       waves: campaign?.stage.waves ?? null,
     });
     if (mode.kind === 'bench') {
-      // Stress test: a tower on every third pad along the road, all three kinds.
-      let k = 0;
-      map.towerPads.forEach(([x, y], pad) => {
-        const touches = map.isPath[y * MAP_W + x - 1] || map.isPath[y * MAP_W + x + 1] || map.isPath[(y - 1) * MAP_W + x] || map.isPath[(y + 1) * MAP_W + x];
-        if (touches && k++ % 3 === 0) this.sim.build(pad, (k % 3) as TowerKind);
-      });
-      this.sim.events.length = 0;
+      buildStressTowers(this.sim);
       this.sim.setEnemyCount(mode.enemies);
     }
     this.towerAnim = new Float32Array(pads).fill(BUILD_ANIM_SECONDS);
@@ -157,7 +160,7 @@ export class StageScreen implements Screen {
     this.controls.enabled = false;
 
     // Terrain and decor are baked into a handful of meshes; towers are dynamic instances.
-    const batcher = new StaticBatcher(tileGridCuller(MAP_W, MAP_H));
+    const batcher = new StaticBatcher(tileGridCuller(MAP_W, MAP_H, () => true, true));
     buildTerrain(map, themes, this.theme, batcher);
     this.border = buildBorder(map, themes, this.theme, campaign?.stage.seed ?? 7, batcher);
     this.scene.add(this.border);
@@ -221,11 +224,15 @@ export class StageScreen implements Screen {
       m.renderOrder = 2;
       this.scene.add(m);
     }
+    this.healthBars = new HealthBars(2048, this.scene);
+    this.gates = new Gates(map, themes, this.theme, this.scene);
     this.setEnemyShadows();
   }
 
   private setupLights(): void {
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a5a3a, this.theme === 'dark' || this.theme === 'lava' ? 1.25 : 1.4));
+    // Dark realms get more fill light; snow gets less so the white ground still shows shading.
+    const fill = this.theme === 'dark' || this.theme === 'lava' ? 1.25 : this.theme === 'snow' ? 1.05 : 1.4;
+    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a5a3a, fill));
     const sun = new THREE.DirectionalLight(this.theme === 'lava' ? 0xffc4a0 : 0xfff1d6, 2.6);
     sun.position.set(-10, 18, 8);
     sun.castShadow = true;
@@ -271,6 +278,8 @@ export class StageScreen implements Screen {
     for (const s of this.sparks) (s.meshes[0].material as THREE.Material).dispose();
     this.enemyMaterial.dispose();
     this.ghostMaterial.dispose();
+    this.healthBars.dispose();
+    this.gates.dispose();
     this.border.geometry.dispose();
     (this.border.material as THREE.Material).dispose();
     for (const m of [this.targetRing, this.rangeRing, this.selectRing, this.rangeDisc]) {
@@ -324,7 +333,8 @@ export class StageScreen implements Screen {
       b.title = t.blurb;
       return b;
     });
-    this.ui.append(abilities, h('div', { class: 'build-bar' }, ...this.buildButtons), h('div', { class: 'stage-dock' }, this.hud.call));
+    this.hud.preview = h('div', { class: 'wave-preview panel white' });
+    this.ui.append(abilities, h('div', { class: 'build-bar' }, ...this.buildButtons), h('div', { class: 'stage-dock' }, this.hud.preview, this.hud.call));
     this.ui.append(h('div', { class: 'build-hint panel white' }, 'Pick a tower below and place it on open ground, then start the wave'));
   }
 
@@ -353,6 +363,22 @@ export class StageScreen implements Screen {
     const call = hud.call!;
     call.style.visibility = sim.canCallWave ? '' : 'hidden';
     if (sim.canCallWave) setText(call, sim.waitingForStart ? 'Start wave' : `Call wave +${sim.earlyCallBonus}`);
+    // Preview of the next wave: size, toughest saucer, and any boss.
+    const preview = hud.preview!;
+    preview.style.visibility = sim.canCallWave ? '' : 'hidden';
+    if (sim.canCallWave) {
+      const w = sim.waitingForStart ? 0 : sim.wave + 1;
+      const key = `${w}`;
+      if (preview.dataset.wave !== key) {
+        preview.dataset.wave = key;
+        const plan = sim.wavePlan(w);
+        const ufo = (t: number) => h('img', { src: `models/kenney-td/Previews/${ENEMY_MODELS[t]}.png`, alt: '' });
+        preview.replaceChildren(
+          h('span', { class: 'label' }, `Wave ${w + 1}`),
+          h('span', {}, `${plan.count}`), ufo(plan.toughest),
+          ...(plan.bosses ? [h('span', { class: 'boss-tag' }, ufo(BOSS), plan.bosses > 1 ? `Boss ×${plan.bosses}` : 'Boss')] : []));
+      }
+    }
     this.buildButtons.forEach((b, i) => (b.disabled = sim.gold < sim.buildCost(i as TowerKind) && this.placing !== i));
     if (this.placing !== null && sim.gold < sim.buildCost(this.placing)) this.setPlacing(null);
     if (hud.meteor) setText(hud.meteor, this.cooldowns.meteor > 0 ? `${Math.ceil(this.cooldowns.meteor)}s` : '');
@@ -448,6 +474,13 @@ export class StageScreen implements Screen {
     }
   }
 
+  private setGhostCell(cell: [number, number] | null): void {
+    const g = this.ghostCell;
+    if (g?.[0] === cell?.[0] && g?.[1] === cell?.[1]) return;
+    this.ghostCell = cell;
+    this.towerVersionDrawn = -1; // re-place the nearby open-ground markers
+  }
+
   private padAtCell(cell: [number, number] | null): number {
     return cell ? this.sim.map.padAt[cell[1] * MAP_W + cell[0]] : -1;
   }
@@ -473,7 +506,7 @@ export class StageScreen implements Screen {
     if (this.mode.kind !== 'campaign' || e.pointerType === 'touch' || this.finished) return;
     const ray = this.rayFrom(e);
     if (this.placing !== null) {
-      this.ghostCell = this.pickCell(ray);
+      this.setGhostCell(this.pickCell(ray));
       this.hoveredPad = -1;
     } else {
       this.hoveredPad = this.armedMeteor ? -1 : this.pickPad(ray);
@@ -495,10 +528,10 @@ export class StageScreen implements Screen {
       // Touch has no hover: the first tap shows the ghost and range, a second tap on the same cell builds.
       const same = this.ghostCell && this.ghostCell[0] === cell[0] && this.ghostCell[1] === cell[1];
       if (e.pointerType === 'touch' && !same) {
-        this.ghostCell = cell;
+        this.setGhostCell(cell);
         return;
       }
-      this.ghostCell = cell;
+      this.setGhostCell(cell);
       this.placeAt(cell, e.shiftKey);
       return;
     }
@@ -668,6 +701,10 @@ export class StageScreen implements Screen {
     const s1 = performance.now();
 
     for (const ev of this.sim.events) {
+      if (ev.type === 'leaked') {
+        this.onLeak(ev.lives);
+        continue;
+      }
       this.towerAnim[ev.pad] = 0;
       this.towerAnimKind[ev.pad] = ev.type === 'built' ? 1 : ev.type === 'upgraded' ? 2 : 0;
     }
@@ -677,6 +714,8 @@ export class StageScreen implements Screen {
 
     this.syncInstances(time);
     this.syncSelection(time);
+    this.gates.update(dt, time);
+    this.healthBars.update(this.sim, this.camera, (i) => this.hoverY(i, time));
     this.controls.update();
     this.clampTarget();
     if (steps > 0) this.perf.simMs = this.perf.simMs * 0.9 + ((s1 - s0) / steps) * 0.1;
@@ -687,6 +726,25 @@ export class StageScreen implements Screen {
       this.panel?.place();
       if (this.sim.status !== 'running') this.finish();
     }
+  }
+
+  /** Hover height of enemy `i` (bobbing), shared by the model and its health bar. */
+  private hoverY(i: number, time: number): number {
+    return 0.25 + Math.sin(time * 3 + i * 1.7) * 0.06 + (this.sim.eType[i] === BOSS ? 0.25 : 0);
+  }
+
+  /** Saucers got through: shake the keep and flash the screen edge. */
+  private onLeak(lives: number): void {
+    this.gates.hit(lives);
+    if (this.mode.kind !== 'campaign') return;
+    sfx('tap-b', 0.5);
+    const flash = h('div', { class: 'leak-flash' });
+    this.ui.append(flash);
+    setTimeout(() => flash.remove(), 600);
+    const panel = this.hud.lives?.parentElement;
+    panel?.classList.remove('hit');
+    void panel?.offsetWidth; // restart the animation
+    panel?.classList.add('hit');
   }
 
   /** Keeps the camera looking at the play area while panning. */
@@ -717,8 +775,13 @@ export class StageScreen implements Screen {
     for (let p = 0; p < sim.padCount; p++) {
       const kind = sim.tKind[p];
       if (kind < 0) {
-        // Open-ground markers only while placing; otherwise the whole map would be brackets.
-        if (this.placing !== null) this.pads.set(emptyPads++, sim.tX[p], TILE_TOP, sim.tZ[p], 0, 0.72);
+        // While placing, mark open ground near the ghost only, shrinking with distance.
+        const g = this.ghostCell;
+        if (this.placing !== null && g) {
+          const [cx, cy] = sim.map.towerPads[p];
+          const d = Math.hypot(cx - g[0], cy - g[1]);
+          if (d <= BRACKET_RADIUS) this.pads.set(emptyPads++, sim.tX[p], TILE_TOP, sim.tZ[p], 0, 0.75 * (1 - (d / BRACKET_RADIUS) * 0.45));
+        }
         continue;
       }
       const { y: dy, scale } = this.animOffset(p);
@@ -750,9 +813,8 @@ export class StageScreen implements Screen {
       if (!sim.eActive[i] || sim.eDist[i] < 0) continue;
       const t = sim.eType[i];
       // Hover bob + slow spin: procedural animation (the kit ships without skeletal clips).
-      const spin = sim.freezeLeft > 0 ? 0.2 : 1.5;
-      const bob = 0.25 + Math.sin(time * 3 + i * 1.7) * 0.06;
-      this.enemies[t].set(this.enemyCounts[t]++, sim.eX[i], bob, sim.eZ[i], time * spin + i, 0.55);
+      const spin = (sim.freezeLeft > 0 ? 0.2 : 1.5) * (t === BOSS ? 0.4 : 1);
+      this.enemies[t].set(this.enemyCounts[t]++, sim.eX[i], this.hoverY(i, time), sim.eZ[i], time * spin + i, ENEMY_SCALE[t]);
     }
     this.enemies.forEach((m, t) => m.commit(this.enemyCounts[t]));
     this.enemyMaterial.color.setHex(sim.freezeLeft > 0 ? 0x9fdcff : 0xffffff);

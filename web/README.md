@@ -41,18 +41,40 @@ Greenhollow, Sunscar Dunes, Frostpeak, Emberforge and Umbral Spire.
 | Commander | Fortified Base (+2 lives), Bounty Hunter (+10% crystals), Sharpshooter (+4% double-damage chance), War Chest (+30 starting gold), Engineering (−4% build/upgrade cost), Salvage Crew (+8% sell refund), Quick Hands (−8% ability cooldown) |
 | Abilities | Meteor Strike (tap the map for area damage) and Deep Freeze (slows every enemy): unlock, then 3 power levels |
 
-**Stage (battle).** The play area is ringed by mountains themed to the area, with
-passes where the road comes in and goes out, so the map fills the screen. On phones
-the camera starts closer. Drag (one finger) pans, right-drag (two fingers) rotates,
-and the wheel (pinch) zooms. You start with gold, and the first wave waits until you
-press **Start wave**.
+**Stage (battle).** Every stage has its own generated map (`src/stage/map.ts`), and each
+area has its own style:
 
+| Area | Roads | Landscape | Water | Landmarks |
+|---|---|---|---|---|
+| Greenhollow | long, gentle (4–7 bends) | copses, scattered rocks | streams with bridges | timber watchtowers |
+| Sunscar Dunes | zig-zags (5–8 bends) | dune fields, rock outcrops | dry | sand-buried tower ruins |
+| Frostpeak | switchbacks (7–11 bends) | pine forests, ice crystals | frozen streams | timber watchtowers |
+| Emberforge | tight (7–11 bends) | basalt fields, fire crystals | lava rivers | ruined forges |
+| Umbral Spire | most convoluted (9–13 bends) | crystal groves, dead woods | void streams | crystal spires |
+
+The generator validates every map:
+- Roads keep a clear tile between passes, don't hug the edge and don't make 1-tile jogs.
+- Rivers meet the road only at right angles on straight stretches, where a bridge goes.
+- Tiles beside the road are always buildable.
+
+`npm run bench:maps` renders all 25 maps into one PNG for review.
+
+The play area is ringed by mountains themed to the area. The road and any river run on
+as real tiles through valleys in the mountains, so the map has no visible edge. Saucers
+come out of a portal and head for your keep, which shakes when they get through. On
+phones the camera starts closer. Drag (one finger) pans, right-drag (two fingers)
+rotates, and the wheel (pinch) zooms.
+
+- **Battle feedback:** health bars show over damaged saucers, and bosses always show
+  one. The last wave of every stage ends with a boss (two on an area's final stage):
+  huge health, costs 5 lives, pays 150 gold. A preview above the wave button shows the
+  next wave's size, its toughest saucer and any boss.
 - **Build anywhere open:** towers go on any tile that isn't road or covered by
   trees, rocks or crystals. Tiles next to the road are always open.
 - **Placing mode:** pick Cannon (100), Ballista (80) or Turret (65) in the build
   bar, or press 1, 2 or 3. A see-through ghost tower and its range circle follow the
-  pointer, green where it can go and red where it can't, and brackets mark every
-  open tile. Click to build; Shift keeps placing, Esc cancels. On touch, the first
+  pointer, green where it can go and red where it can't, and brackets mark open
+  tiles near the pointer. Click to build; Shift keeps placing, Esc cancels. On touch, the first
   tap shows the ghost and range, and a second tap on the same tile builds. Tapping
   an open tile outside placing mode opens a quick build menu with range previews.
 - **Upgrade:** tap a tower for its panel. It shows current → next damage, range and

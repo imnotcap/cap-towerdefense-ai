@@ -20,7 +20,6 @@ export interface StageDef {
   /** 0-based across the whole campaign; a stage unlocks when the previous one is cleared. */
   order: number;
   name: string;
-  layout: number;
   seed: number;
   waves: WaveConfig;
   /** Gold at the start of the battle, before the War Chest perk. */
@@ -56,11 +55,16 @@ export const STAGES: readonly StageDef[] = AREAS.flatMap((area, a) =>
       index,
       order,
       name,
-      layout: (order * 3 + a) % 5,
       seed: 101 + order * 17,
-      waves: { waves: 5 + a + (index >> 1), firstWave: Math.round(8 + order * 0.8), spawnInterval: Math.max(0.25, 0.7 - order * 0.018), wavePause: 12 },
+      waves: {
+        waves: 5 + a + (index >> 1),
+        firstWave: Math.round(8 + order * 0.8),
+        spawnInterval: Math.max(0.25, 0.7 - order * 0.018),
+        wavePause: 12,
+        bosses: index === STAGES_PER_AREA - 1 ? 2 : 1,
+      },
       startGold: 200 + order * 50,
-      hpScale: 1 + order * 0.22 + order * order * 0.008,
+      hpScale: 1 + order * 0.22 + order * order * 0.0095,
       speedScale: 1 + a * 0.06,
     };
   }),
@@ -70,7 +74,7 @@ export type Difficulty = 'easy' | 'normal' | 'hard';
 export const DIFFICULTY: Record<Difficulty, { label: string; hp: number; reward: number }> = {
   easy: { label: 'Easy', hp: 0.75, reward: 0.7 },
   normal: { label: 'Normal', hp: 1, reward: 1 },
-  hard: { label: 'Hard', hp: 1.4, reward: 1.6 },
+  hard: { label: 'Hard', hp: 1.6, reward: 1.6 },
 };
 
 export const BASE_LIVES = 20;

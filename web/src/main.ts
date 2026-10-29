@@ -6,7 +6,8 @@ import type { Game } from './game';
 import { STAGES, type StageDef } from './meta/catalog';
 import { Profile } from './meta/profile';
 import { attachBenchHud } from './stage/bench-hud';
-import { DECOR, GROUND_TILES, PATH_TILES } from './stage/map';
+import { GATE_MODELS } from './stage/gates';
+import { MAP_MODELS } from './stage/map';
 import { AMMO_FOR_WEAPON, WEAPON_TYPES } from './stage/sim';
 import { ENEMY_MODELS, STAGE_EXTRA_MODELS, StageScreen } from './stage/stage-screen';
 import { TOWER_MODELS } from './stage/towers';
@@ -19,7 +20,7 @@ async function main() {
   const app = await App.create({ forceWebGL: params.has('webgl'), shadows: !params.has('noshadow') });
 
   const names = new Set([
-    ...GROUND_TILES, ...PATH_TILES, ...DECOR, ...ENEMY_MODELS, ...TOWER_MODELS, ...WEAPON_TYPES, ...AMMO_FOR_WEAPON,
+    ...MAP_MODELS, ...GATE_MODELS, ...ENEMY_MODELS, ...TOWER_MODELS, ...WEAPON_TYPES, ...AMMO_FOR_WEAPON,
     ...STAGE_EXTRA_MODELS, ...WORLD_MODELS,
   ]);
   const models = await loadModels(Themes.withVariants([...names], SNOW_VARIANTS), setLoadingProgress);

@@ -44,6 +44,8 @@ def main():
     lava = remap(base, [
         (80, 180, lambda h, l, s: (12, l * 0.42, s * 0.25)),
         (5, 45, lambda h, l, s: (h - 10, l * 0.62, s * 0.95)),
+        # Water runs as lava.
+        (180, 250, lambda h, l, s: (22, 0.55, 1.0)),
     ])
     lava.save(TEX / "theme-lava.png")
 
@@ -51,8 +53,18 @@ def main():
     dark = remap(base, [
         (80, 180, lambda h, l, s: (272, l * 0.62, s * 0.55)),
         (5, 45, lambda h, l, s: (235, l * 0.7, s * 0.35)),
+        # Water becomes a glowing void stream.
+        (180, 250, lambda h, l, s: (286, 0.5, 0.55)),
     ])
     dark.save(TEX / "theme-dark.png")
+
+    # Frostpeak: deepen the pale ice blues so roads and frozen rivers read against the snow.
+    # (The snow itself is hue ~240 at low saturation and is left alone.)
+    snow = remap(base, [
+        (185, 200, lambda h, l, s: (h + 4, l * 0.8, s)),   # ice road
+        (200, 215, lambda h, l, s: (h + 6, l * 0.62, s)),  # frozen river
+    ])
+    snow.save(TEX / "theme-snow.png")
 
     # Locked areas on the world map: desaturated and slightly darkened.
     locked = Image.eval(base.convert("LA"), lambda v: int(v * 0.85)).convert("RGBA")

@@ -15,6 +15,23 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
+/** Smooth 2D value noise in [0, 1]: three octaves, features roughly 5 cells across. */
+export function valueNoise(seed: number): (x: number, z: number) => number {
+  const hash = (ix: number, iz: number) => {
+    let h = Math.imul(ix, 374761393) + Math.imul(iz, 668265263) + Math.imul(seed, 1013904223);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  };
+  const smooth = (t: number) => t * t * (3 - 2 * t);
+  const octave = (x: number, z: number) => {
+    const ix = Math.floor(x), iz = Math.floor(z);
+    const fx = smooth(x - ix), fz = smooth(z - iz);
+    const a = hash(ix, iz), b = hash(ix + 1, iz), c = hash(ix, iz + 1), d = hash(ix + 1, iz + 1);
+    return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;
+  };
+  return (x, z) => octave(x * 0.18, z * 0.18) * 0.6 + octave(x * 0.45, z * 0.45) * 0.3 + octave(x * 1.1, z * 1.1) * 0.1;
+}
+
 /** Expands axis-aligned corner points into every cell along the polyline. */
 export function rasterizePath(corners: readonly Cell[]): Cell[] {
   const cells: Cell[] = [];
@@ -71,9 +88,10 @@ const EPS = 1e-3;
  * Culls faces of a w×h tile grid centred on the origin that the camera can
  * never see: anything facing down (the camera stays above the map) and tile
  * side walls on a shared cell boundary, where the neighbouring tile covers them.
- * `hasTile` says whether a cell is occupied (irregular islands have open edges).
+ * `hasTile` says whether a cell is occupied (irregular islands have open edges); with
+ * `edges`, walls on the outer boundary are culled as well.
  */
-export function tileGridCuller(w: number, h: number, hasTile: (cx: number, cy: number) => boolean = () => true): FaceCull {
+export function tileGridCuller(w: number, h: number, hasTile: (cx: number, cy: number) => boolean = () => true, edges = false): FaceCull {
   // A wall at grid line g between columns g-1 and g is hidden only if both sides have tiles.
   const shared = (g: number, other: number, alongX: boolean) =>
     alongX ? hasTile(g - 1, other) && hasTile(g, other) : hasTile(other, g - 1) && hasTile(other, g);
@@ -81,7 +99,8 @@ export function tileGridCuller(w: number, h: number, hasTile: (cx: number, cy: n
     if (Math.abs(u - v) > EPS || Math.abs(u - wv) > EPS) return null;
     const g = u + half;
     const r = Math.round(g);
-    return Math.abs(g - r) < EPS && r > 0 && r < half * 2 ? r : null;
+    // `edges`: the map's outer walls are hidden too (terrain continues beyond the grid).
+    return Math.abs(g - r) < EPS && (edges ? r >= 0 && r <= half * 2 : r > 0 && r < half * 2) ? r : null;
   };
   return (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, n: THREE.Vector3) => {
     if (n.y < -0.5) return true;

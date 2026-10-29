@@ -2,7 +2,7 @@
 // Usage: npm run bench:balance
 import { DIFFICULTY, STAGES, UPGRADES, type Difficulty } from '../src/meta/catalog';
 import { Profile } from '../src/meta/profile';
-import { PATH_LAYOUTS, buildMap, samplePath } from '../src/stage/map';
+import { buildMap, samplePath } from '../src/stage/map';
 import { Sim, TICK } from '../src/stage/sim';
 import type { TowerKind } from '../src/stage/towers';
 
@@ -45,7 +45,7 @@ function spend(sim: Sim, order: number[]): void {
 function play(stageIdx: number, difficulty: Difficulty, shop: number) {
   const stage = STAGES[stageIdx];
   const mods = loadout(shop).modifiers();
-  const sim = new Sim(buildMap(PATH_LAYOUTS[stage.layout], stage.seed), 4000, {
+  const sim = new Sim(buildMap(stage.seed, stage.area.theme), 4000, {
     weapons: mods.weapons, critChance: mods.critChance, hpScale: stage.hpScale * DIFFICULTY[difficulty].hp,
     speedScale: stage.speedScale, lives: mods.lives, startGold: stage.startGold + mods.bonusGold, costScale: mods.costScale,
     sellRefund: mods.sellRefund, mountY: () => 1.3, waves: stage.waves,

@@ -4,8 +4,9 @@ import * as THREE from 'three/webgpu';
 import { InstancedModel } from '../src/engine/instancing';
 import { buildMap } from '../src/stage/map';
 import { BASE_WEAPON_STATS, Sim } from '../src/stage/sim';
+import { buildStressTowers } from '../src/stage/stress';
 
-const map = buildMap();
+const map = buildMap(7);
 const box: THREE.BufferGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
 const model = [{ name: 'enemy', geometry: box, material: new THREE.MeshBasicMaterial(), movable: false }];
 const TICKS = 600;
@@ -13,9 +14,10 @@ const TICKS = 600;
 const rows = [];
 for (const n of [250, 1000, 2500, 5000, 10000, 20000]) {
   const sim = new Sim(map, n, {
-    weapons: BASE_WEAPON_STATS, critChance: 0, hpScale: 1, speedScale: 1, lives: 1, startGold: 0, costScale: 1, sellRefund: 0.7,
-    mountY: () => 1.3, waves: null, prebuilt: true,
+    weapons: BASE_WEAPON_STATS, critChance: 0, hpScale: 1, speedScale: 1, lives: 1, startGold: 1e9, costScale: 1, sellRefund: 0.7,
+    mountY: () => 1.3, waves: null,
   });
+  buildStressTowers(sim);
   sim.setEnemyCount(n);
   const inst = new InstancedModel(model, n, { dynamic: true });
   for (let i = 0; i < 120; i++) sim.step(); // warm up the JIT

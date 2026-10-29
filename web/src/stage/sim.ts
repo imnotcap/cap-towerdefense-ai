@@ -9,7 +9,9 @@ import {
  */
 export const TICK = 1 / 60;
 
-export const ENEMY_TYPES = 4;
+/** Four saucer sizes plus the boss (type 4). */
+export const ENEMY_TYPES = 5;
+export const BOSS = 4;
 export const WEAPON_TYPES = TOWER_KINDS.map((k) => k.weapon);
 export const AMMO_FOR_WEAPON = TOWER_KINDS.map((k) => k.ammo);
 
@@ -28,10 +30,12 @@ export const BASE_WEAPON_STATS: readonly WeaponStats[] = [
   { range: 4.2, cooldown: 0.8, damage: 30, speed: 14, splash: 0 },
   { range: 2.6, cooldown: 0.18, damage: 8, speed: 18, splash: 0 },
 ];
-const ENEMY_HP = [60, 90, 140, 220];
-const ENEMY_SPEED = [1.6, 1.3, 1.0, 0.8];
+const ENEMY_HP = [60, 90, 140, 220, 2600];
+const ENEMY_SPEED = [1.6, 1.3, 1.0, 0.8, 0.5];
 /** Gold per kill by enemy type. */
-export const ENEMY_BOUNTY = [4, 6, 9, 14];
+export const ENEMY_BOUNTY = [4, 6, 9, 14, 150];
+/** Lives lost when one gets through. */
+export const ENEMY_LIFE_COST = [1, 1, 1, 1, 5];
 
 export interface WaveConfig {
   waves: number;
@@ -41,6 +45,8 @@ export interface WaveConfig {
   spawnInterval: number;
   /** Seconds of calm between waves before the next one starts on its own. */
   wavePause: number;
+  /** Bosses that close out the final wave. */
+  bosses: number;
 }
 
 export interface SimConfig {
@@ -64,7 +70,7 @@ export interface SimConfig {
 export type SimStatus = 'running' | 'won' | 'lost';
 
 /** Something the renderer may want to react to (build dust, sounds). */
-export type SimEvent = { type: 'built' | 'upgraded' | 'sold'; pad: number };
+export type SimEvent = { type: 'built' | 'upgraded' | 'sold'; pad: number } | { type: 'leaked'; lives: number };
 
 const MAX_PROJECTILES = 4096;
 export const MAX_PARTICLES = 8192;
@@ -90,6 +96,7 @@ export class Sim {
   readonly eDist: Float32Array;
   readonly eLane: Float32Array;
   readonly eHp: Float32Array;
+  readonly eMaxHp: Float32Array;
   readonly eX: Float32Array;
   readonly eZ: Float32Array;
   readonly eYaw: Float32Array;
@@ -154,6 +161,7 @@ export class Sim {
   /** Wave mode starts paused so the player can build; `callWave` begins the first wave. */
   waitingForStart: boolean;
   private toSpawn = 0;
+  private bossesToSpawn = 0;
   private spawnTimer = 0;
   pauseTimer = 0;
 
@@ -171,6 +179,7 @@ export class Sim {
     this.eDist = new Float32Array(capacity);
     this.eLane = new Float32Array(capacity);
     this.eHp = new Float32Array(capacity);
+    this.eMaxHp = new Float32Array(capacity);
     this.eX = new Float32Array(capacity);
     this.eZ = new Float32Array(capacity);
     this.eYaw = new Float32Array(capacity);
@@ -312,7 +321,7 @@ export class Sim {
   /** Endless mode only: shrinking keeps the first n enemies; growing spreads new ones along the path. */
   setEnemyCount(n: number): void {
     n = Math.min(n, this.capacity);
-    for (let i = this.n; i < n; i++) this.spawn(i, this.rand() * this.map.length, (this.rand() * ENEMY_TYPES) | 0);
+    for (let i = this.n; i < n; i++) this.spawn(i, this.rand() * this.map.length, (this.rand() * BOSS) | 0);
     for (let i = n; i < this.n; i++) this.eActive[i] = 0;
     this.n = n;
     this.activeEnemies = n;
@@ -323,7 +332,7 @@ export class Sim {
     this.eType[i] = type;
     this.eDist[i] = dist;
     this.eLane[i] = (this.rand() - 0.5) * 0.6;
-    this.eHp[i] = ENEMY_HP[type] * this.config.hpScale * (1 + this.wave * WAVE_HP_GROWTH);
+    this.eHp[i] = this.eMaxHp[i] = ENEMY_HP[type] * this.config.hpScale * (1 + this.wave * WAVE_HP_GROWTH);
     this.eGen[i]++;
   }
 
@@ -340,10 +349,21 @@ export class Sim {
     this.activeEnemies--;
   }
 
-  private startWave(w: number): void {
+  /** What wave `w` will bring (for the HUD preview). */
+  wavePlan(w: number): { count: number; toughest: number; bosses: number } {
     const cfg = this.config.waves!;
+    return {
+      count: Math.round(cfg.firstWave * (1 + w * 0.35)),
+      toughest: Math.min(BOSS - 1, Math.floor(w / 2)),
+      bosses: w === cfg.waves - 1 ? cfg.bosses : 0,
+    };
+  }
+
+  private startWave(w: number): void {
+    const plan = this.wavePlan(w);
     this.wave = w;
-    this.toSpawn = Math.round(cfg.firstWave * (1 + w * 0.35));
+    this.toSpawn = plan.count + plan.bosses;
+    this.bossesToSpawn = plan.bosses;
     this.spawnTimer = 0;
   }
 
@@ -398,14 +418,16 @@ export class Sim {
       this.spawnTimer -= TICK;
       if (this.spawnTimer <= 0) {
         const slot = this.allocate();
+        // Bosses close out the wave, after the regular saucers.
+        const boss = this.toSpawn <= this.bossesToSpawn;
         if (slot >= 0) {
           // Later waves mix in tougher enemy types.
-          const maxType = Math.min(ENEMY_TYPES - 1, Math.floor(this.wave / 2));
-          this.spawn(slot, 0, Math.floor(this.rand() * (maxType + 1)));
+          const toughest = this.wavePlan(this.wave).toughest;
+          this.spawn(slot, 0, boss ? BOSS : Math.floor(this.rand() * (toughest + 1)));
           this.activeEnemies++;
         }
         this.toSpawn--;
-        this.spawnTimer = cfg.spawnInterval;
+        this.spawnTimer = boss ? cfg.spawnInterval * 4 : cfg.spawnInterval;
         if (this.toSpawn === 0) {
           this.pauseTimer = cfg.wavePause;
           this.gold += 15 + this.wave * 5; // end-of-wave bonus once the last enemy has spawned
@@ -428,8 +450,10 @@ export class Sim {
           // Stress test keeps N constant by recycling at the spawn.
           d -= map.length;
         } else {
+          const cost = ENEMY_LIFE_COST[this.eType[i]];
           this.leaked++;
-          this.lives--;
+          this.lives -= cost;
+          this.events.push({ type: 'leaked', lives: cost });
           this.release(i);
           continue;
         }
@@ -541,12 +565,14 @@ export class Sim {
     this.eHp[i] -= amount;
     if (this.eHp[i] <= 0) {
       this.kills++;
-      this.burst(this.eX[i], 0.6, this.eZ[i], 14, 2.2, PARTICLE_EMBER);
+      const boss = this.eType[i] === BOSS;
+      this.burst(this.eX[i], 0.6, this.eZ[i], boss ? 90 : 14, boss ? 4 : 2.2, PARTICLE_EMBER);
+      if (boss) this.burst(this.eX[i], 0.8, this.eZ[i], 40, 3, PARTICLE_GOLD);
       if (this.config.waves) {
         this.gold += ENEMY_BOUNTY[this.eType[i]];
         this.release(i);
       } else {
-        this.spawn(i, -this.rand() * 3, (this.rand() * ENEMY_TYPES) | 0);
+        this.spawn(i, -this.rand() * 3, (this.rand() * BOSS) | 0);
       }
     }
   }

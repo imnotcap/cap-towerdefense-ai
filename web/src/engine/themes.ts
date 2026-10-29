@@ -6,7 +6,7 @@ export type ThemeId = 'grass' | 'desert' | 'snow' | 'lava' | 'dark' | 'locked';
 const TEXTURE_DIR = 'models/kenney-td/Textures/';
 const PALETTES: Record<ThemeId, string | null> = {
   grass: null, // the kit's own colormap
-  snow: null,
+  snow: 'theme-snow.png',
   desert: 'theme-desert.png',
   lava: 'theme-lava.png',
   dark: 'theme-dark.png',
@@ -128,5 +128,6 @@ export class Themes {
 export const SNOW_VARIANTS: ReadonlySet<string> = new Set([
   'tile', 'tile-straight', 'tile-corner-square', 'tile-spawn', 'tile-end', 'tile-tree', 'tile-tree-double', 'tile-rock',
   'tile-hill', 'tile-crystal', 'detail-tree', 'detail-tree-large', 'detail-rocks', 'detail-crystal', 'tile-river-straight',
-  'tile-river-corner', 'tile-river-bridge', 'wood-structure', 'detail-rocks-large', 'tile-tree-quad', 'detail-dirt',
+  'tile-river-corner', 'tile-river-bridge', 'wood-structure', 'wood-structure-high', 'detail-rocks-large', 'tile-tree-quad',
+  'detail-dirt', 'detail-dirt-large', 'detail-crystal-large',
 ]);
