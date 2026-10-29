@@ -72,6 +72,44 @@ export class Themes {
     return m;
   }
 
+  private readonly pixels = new Map<THREE.Texture, ImageData>();
+
+  /**
+   * The palette colour on the upward-facing surface of a model: its top
+   * (`'top'`, e.g. grass on `tile`) or the lowest raised surface (`'low'`,
+   * e.g. the road bed of `tile-straight`). Lets procedural meshes match the kit.
+   */
+  surfaceColor(name: string, theme: ThemeId, which: 'top' | 'low' = 'top'): THREE.Color {
+    const part = this.model(name, theme)[0];
+    const pos = part.geometry.getAttribute('position');
+    const nor = part.geometry.getAttribute('normal');
+    const uv = part.geometry.getAttribute('uv');
+    let best = -1;
+    for (let i = 0; i < pos.count; i++) {
+      if (nor.getY(i) < 0.9) continue;
+      const y = pos.getY(i);
+      if (which === 'low' && y < 0.05) continue;
+      if (best < 0 || (which === 'top' ? y > pos.getY(best) : y < pos.getY(best))) best = i;
+    }
+    const tex = (part.material as THREE.MeshStandardMaterial).map!;
+    let data = this.pixels.get(tex);
+    if (!data) {
+      const img = tex.image as CanvasImageSource & { width: number; height: number };
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+      ctx.drawImage(img, 0, 0);
+      data = ctx.getImageData(0, 0, img.width, img.height);
+      this.pixels.set(tex, data);
+    }
+    // glTF textures are not flipped: uv (0, 0) is the top-left pixel.
+    const px = Math.min(data.width - 1, Math.floor(uv.getX(best) * data.width));
+    const py = Math.min(data.height - 1, Math.floor(uv.getY(best) * data.height));
+    const o = (py * data.width + px) * 4;
+    return new THREE.Color().setRGB(data.data[o] / 255, data.data[o + 1] / 255, data.data[o + 2] / 255, THREE.SRGBColorSpace);
+  }
+
   /** The model `name` dressed for `theme` (e.g. `tile` → `snow-tile` for snow). */
   model(name: string, theme: ThemeId): Model {
     const variant = theme === 'snow' ? this.models.get(`snow-${name}`) : undefined;

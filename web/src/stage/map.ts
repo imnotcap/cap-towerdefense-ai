@@ -14,6 +14,14 @@ export const PATH_LAYOUTS: readonly (readonly Cell[])[] = [
   [[0, 5], [8, 5], [8, 11], [13, 11], [13, 5], [19, 5], [19, 10], [21, 10]],
 ];
 
+/** What sits on one non-path cell. Cells with scenery (anything but a plain tile) can't be built on. */
+export interface GroundCell {
+  cell: Cell;
+  tile: string;
+  yaw: number;
+  prop?: { name: string; x: number; z: number; yaw: number };
+}
+
 export interface GameMap {
   /** Ordered path cells from spawn to base. */
   pathCells: Cell[];
@@ -21,7 +29,11 @@ export interface GameMap {
   waypoints: Float32Array; // x,z pairs
   cumulative: Float32Array;
   length: number;
+  ground: GroundCell[];
+  /** Buildable cells: open ground without trees, rocks or crystals. */
   towerPads: Cell[];
+  /** Pad index per grid cell, or -1. */
+  padAt: Int16Array;
   isPath: Uint8Array;
 }
 
@@ -30,7 +42,7 @@ export function cellToWorld(cx: number, cy: number): [number, number] {
   return [cx - MAP_W / 2 + 0.5, cy - MAP_H / 2 + 0.5];
 }
 
-export function buildMap(corners: readonly Cell[] = PATH_LAYOUTS[0]): GameMap {
+export function buildMap(corners: readonly Cell[] = PATH_LAYOUTS[0], seed = 7): GameMap {
   const pathCells = rasterizePath(corners);
   const isPath = new Uint8Array(MAP_W * MAP_H);
   for (const [x, y] of pathCells) isPath[y * MAP_W + x] = 1;
@@ -46,20 +58,35 @@ export function buildMap(corners: readonly Cell[] = PATH_LAYOUTS[0]): GameMap {
     }
   });
 
-  // Tower pads: every third free cell that touches the path orthogonally.
+  // Scenery is decided here (not at render time) because it decides where towers can go.
+  // Cells next to the road stay open so every stretch of road can be defended.
+  const rand = mulberry32(seed);
+  const ground: GroundCell[] = [];
   const towerPads: Cell[] = [];
-  let k = 0;
+  const padAt = new Int16Array(MAP_W * MAP_H).fill(-1);
   for (let y = 0; y < MAP_H; y++) {
-    for (let x = 1; x < MAP_W - 1; x++) {
-      if (isPath[y * MAP_W + x]) continue;
-      const touches =
-        isPath[y * MAP_W + x - 1] || isPath[y * MAP_W + x + 1] ||
-        (y > 0 && isPath[(y - 1) * MAP_W + x]) || (y < MAP_H - 1 && isPath[(y + 1) * MAP_W + x]);
-      if (touches && k++ % 3 === 0) towerPads.push([x, y]);
+    for (let x = 0; x < MAP_W; x++) {
+      const idx = y * MAP_W + x;
+      if (isPath[idx]) continue;
+      const [wx, wz] = cellToWorld(x, y);
+      const yaw = Math.floor(rand() * 4) * (Math.PI / 2);
+      const nearPath = isPath[idx - 1] || isPath[idx + 1] || isPath[idx - MAP_W] || isPath[idx + MAP_W];
+      const r = rand();
+      const g: GroundCell = { cell: [x, y], tile: 'tile', yaw };
+      if (!nearPath && r < 0.2) {
+        g.tile = GROUND_TILES[1 + Math.floor(rand() * (GROUND_TILES.length - 1))];
+      } else if (!nearPath && r < 0.3) {
+        g.prop = { name: DECOR[Math.floor(rand() * DECOR.length)], x: wx + (rand() - 0.5) * 0.5, z: wz + (rand() - 0.5) * 0.5, yaw: rand() * Math.PI * 2 };
+      }
+      ground.push(g);
+      if (g.tile === 'tile' && !g.prop) {
+        padAt[idx] = towerPads.length;
+        towerPads.push([x, y]);
+      }
     }
   }
 
-  return { pathCells, waypoints, cumulative, length: cumulative[cumulative.length - 1], towerPads, isPath };
+  return { pathCells, waypoints, cumulative, length: cumulative[cumulative.length - 1], ground, towerPads, padAt, isPath };
 }
 
 export const GROUND_TILES = ['tile', 'tile-tree', 'tile-tree-double', 'tile-rock', 'tile-hill', 'tile-crystal'] as const;
@@ -70,8 +97,7 @@ export { PATH_TILES };
 const FLAT_TILES = new Set<string>(['tile', ...PATH_TILES]);
 
 /** Adds all terrain tiles and decoration to the batcher, dressed in `theme`. */
-export function buildTerrain(map: GameMap, themes: Themes, theme: ThemeId, batcher: StaticBatcher, seed = 7): void {
-  const rand = mulberry32(seed);
+export function buildTerrain(map: GameMap, themes: Themes, theme: ThemeId, batcher: StaticBatcher): void {
   const place = (name: string, x: number, z: number, yaw: number) =>
     batcher.add(themes.model(name, theme), x, 0, z, yaw, !FLAT_TILES.has(name));
 
@@ -79,27 +105,9 @@ export function buildTerrain(map: GameMap, themes: Themes, theme: ThemeId, batch
     const { model, yaw } = pathTile(map.pathCells, i);
     place(model, ...cellToWorld(...cell), yaw);
   });
-
-  const padSet = new Set(map.towerPads.map(([x, y]) => y * MAP_W + x));
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
-      const idx = y * MAP_W + x;
-      if (map.isPath[idx]) continue;
-      const [wx, wz] = cellToWorld(x, y);
-      const yaw = Math.floor(rand() * 4) * (Math.PI / 2);
-      if (padSet.has(idx)) {
-        place('tile', wx, wz, 0);
-        continue;
-      }
-      const r = rand();
-      const nearPath = map.isPath[idx - 1] || map.isPath[idx + 1] || map.isPath[idx - MAP_W] || map.isPath[idx + MAP_W];
-      const model = nearPath || r < 0.72 ? 'tile' : GROUND_TILES[1 + Math.floor(rand() * (GROUND_TILES.length - 1))];
-      place(model, wx, wz, yaw);
-      if (model === 'tile' && !nearPath && rand() < 0.25) {
-        const d = DECOR[Math.floor(rand() * DECOR.length)];
-        place(d, wx + (rand() - 0.5) * 0.5, wz + (rand() - 0.5) * 0.5, rand() * Math.PI * 2);
-      }
-    }
+  for (const g of map.ground) {
+    place(g.tile, ...cellToWorld(...g.cell), g.yaw);
+    if (g.prop) place(g.prop.name, g.prop.x, g.prop.z, g.prop.yaw);
   }
 }
 

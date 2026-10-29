@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
 import type { Screen } from '../engine/app';
 import { type Model, modelHeight } from '../engine/assets';
 import { InstancedModel } from '../engine/instancing';
@@ -10,10 +10,11 @@ import type { Game } from '../game';
 import { DIFFICULTY, starsFor, stageReward, type Difficulty, type StageDef } from '../meta/catalog';
 import type { Modifiers } from '../meta/profile';
 import { button, crystal, formatNumber, h, modal, sfx, stars } from '../ui/dom';
-import { MAP_H, MAP_W, PATH_LAYOUTS, buildMap, buildTerrain } from './map';
+import { BORDER, buildBorder } from './border';
+import { MAP_H, MAP_W, PATH_LAYOUTS, buildMap, buildTerrain, cellToWorld } from './map';
 import { AMMO_FOR_WEAPON, BASE_WEAPON_STATS, ENEMY_TYPES, MAX_PARTICLES, PARTICLE_DUST, Sim, TICK, WEAPON_TYPES } from './sim';
 import { TowerPanel } from './tower-panel';
-import { TOWER_MODELS, TOWER_STACKS, type TowerKind } from './towers';
+import { TOWER_KINDS, TOWER_MODELS, TOWER_STACKS, type TowerKind } from './towers';
 
 export const ENEMY_MODELS = ['enemy-ufo-a', 'enemy-ufo-b', 'enemy-ufo-c', 'enemy-ufo-d'];
 export const STAGE_EXTRA_MODELS = ['selection-a', 'weapon-ammo-boulder'];
@@ -38,7 +39,7 @@ export class StageScreen implements Screen {
   readonly camera = new THREE.PerspectiveCamera(40, 1, 0.5, 200);
   readonly sim: Sim;
   readonly mods: Modifiers;
-  private readonly controls: OrbitControls;
+  private readonly controls: MapControls;
   private readonly theme: ThemeId;
   private readonly enemies: InstancedModel[];
   private readonly enemyMaterial: THREE.MeshStandardMaterial;
@@ -56,6 +57,9 @@ export class StageScreen implements Screen {
   private readonly rangeRing: THREE.Mesh;
   private readonly selectRing: THREE.Mesh;
   private readonly staticMeshes: THREE.Mesh[];
+  private readonly border: THREE.Mesh;
+  private readonly ghosts: THREE.Group[];
+  private readonly ghostMaterial: THREE.MeshStandardMaterial;
   private readonly enemyCounts = new Int32Array(ENEMY_TYPES);
   private readonly weaponCounts = new Int32Array(WEAPON_TYPES.length);
   private readonly ammoCounts = new Int32Array(AMMO_FOR_WEAPON.length);
@@ -83,6 +87,10 @@ export class StageScreen implements Screen {
   } = {};
   private panel: TowerPanel | null = null;
   private hoveredPad = -1;
+  /** Placing mode: the tower picked in the build bar, and the cell the ghost sits on. */
+  private placing: TowerKind | null = null;
+  private ghostCell: [number, number] | null = null;
+  private buildButtons: HTMLButtonElement[] = [];
   /** Build option being hovered in the panel: its range is previewed on the map. */
   previewKind: TowerKind | null = null;
   /** Exponential moving averages for the perf panel. */
@@ -101,7 +109,8 @@ export class StageScreen implements Screen {
     this.theme = campaign?.stage.area.theme ?? 'grass';
     const { themes, models } = game;
 
-    const pads = buildMap(PATH_LAYOUTS[campaign?.stage.layout ?? 0]).towerPads.length;
+    const map = buildMap(PATH_LAYOUTS[campaign?.stage.layout ?? 0], campaign?.stage.seed ?? 7);
+    const pads = map.towerPads.length;
     for (const name of TOWER_MODELS) {
       const model = themes.model(name, this.theme);
       this.partHeights.set(name, modelHeight(model));
@@ -111,44 +120,73 @@ export class StageScreen implements Screen {
     this.stackHeights = TOWER_STACKS.map((levels) => levels.map((stack) =>
       stack.reduce((top, name) => top + this.partHeights.get(name)!, 0)));
 
-    const map = buildMap(PATH_LAYOUTS[campaign?.stage.layout ?? 0]);
     this.sim = new Sim(map, MAX_ENEMIES, {
       weapons: this.mods.weapons,
       critChance: this.mods.critChance,
       hpScale: campaign ? campaign.stage.hpScale * DIFFICULTY[campaign.difficulty].hp : 1,
       speedScale: campaign?.stage.speedScale ?? 1,
       lives: this.mods.lives,
-      startGold: (campaign?.stage.startGold ?? 0) + this.mods.bonusGold,
+      startGold: campaign ? campaign.stage.startGold + this.mods.bonusGold : 1e9,
       costScale: this.mods.costScale,
       sellRefund: this.mods.sellRefund,
       mountY: (kind, level) => TILE_TOP + this.stackHeights[kind][level - 1],
       waves: campaign?.stage.waves ?? null,
-      prebuilt: mode.kind === 'bench',
     });
-    if (mode.kind === 'bench') this.sim.setEnemyCount(mode.enemies);
+    if (mode.kind === 'bench') {
+      // Stress test: a tower on every third pad along the road, all three kinds.
+      let k = 0;
+      map.towerPads.forEach(([x, y], pad) => {
+        const touches = map.isPath[y * MAP_W + x - 1] || map.isPath[y * MAP_W + x + 1] || map.isPath[(y - 1) * MAP_W + x] || map.isPath[(y + 1) * MAP_W + x];
+        if (touches && k++ % 3 === 0) this.sim.build(pad, (k % 3) as TowerKind);
+      });
+      this.sim.events.length = 0;
+      this.sim.setEnemyCount(mode.enemies);
+    }
     this.towerAnim = new Float32Array(pads).fill(BUILD_ANIM_SECONDS);
     this.towerAnimKind = new Uint8Array(pads);
 
     this.scene.background = new THREE.Color(THEME_SKY[this.theme]);
     this.setupLights();
-    this.controls = new OrbitControls(this.camera, game.app.canvas);
+    // Drag/one finger pans, right-drag/two fingers rotate, wheel/pinch zooms.
+    this.controls = new MapControls(this.camera, game.app.canvas);
     this.controls.enableDamping = true;
     this.controls.minPolarAngle = 0.15;
-    this.controls.maxPolarAngle = 1.0;
+    this.controls.maxPolarAngle = 0.95;
     this.controls.minDistance = 6;
-    this.controls.maxDistance = 90;
     this.controls.screenSpacePanning = false;
     this.controls.enabled = false;
 
     // Terrain and decor are baked into a handful of meshes; towers are dynamic instances.
     const batcher = new StaticBatcher(tileGridCuller(MAP_W, MAP_H));
-    buildTerrain(map, themes, this.theme, batcher, campaign?.stage.seed);
+    buildTerrain(map, themes, this.theme, batcher);
+    this.border = buildBorder(map, themes, this.theme, campaign?.stage.seed ?? 7, batcher);
+    this.scene.add(this.border);
     this.perf.staticTrisBefore = batcher.trianglesIn;
     this.perf.staticTris = batcher.trianglesOut;
     this.staticMeshes = batcher.build(this.scene);
     this.perf.staticMeshes = this.staticMeshes.length;
 
     this.pads = new InstancedModel(themes.model('selection-a', this.theme), pads, { dynamic: true, castShadow: false }).addTo(this.scene);
+
+    // Placement ghosts: a see-through level-1 tower per kind.
+    this.ghostMaterial = (themes.model(TOWER_STACKS[0][0][0], this.theme)[0].material as THREE.MeshStandardMaterial).clone();
+    Object.assign(this.ghostMaterial, { transparent: true, opacity: 0.6, depthWrite: false });
+    this.ghosts = TOWER_STACKS.map((levels, kind) => {
+      const group = new THREE.Group();
+      let y = 0;
+      for (const name of [...levels[0], TOWER_KINDS[kind].weapon]) {
+        for (const part of name.startsWith('weapon') ? models.get(name)! : themes.model(name, this.theme)) {
+          const mesh = new THREE.Mesh(part.geometry, this.ghostMaterial);
+          mesh.position.y = y;
+          mesh.renderOrder = 3;
+          group.add(mesh);
+        }
+        y += this.partHeights.get(name) ?? 0;
+      }
+      group.visible = false;
+      this.scene.add(group);
+      return group;
+    });
 
     // Enemies get their own material so freezing can tint them without touching the map.
     this.enemyMaterial = (models.get(ENEMY_MODELS[0])![0].material as THREE.MeshStandardMaterial).clone();
@@ -187,14 +225,14 @@ export class StageScreen implements Screen {
   }
 
   private setupLights(): void {
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a5a3a, this.theme === 'dark' || this.theme === 'lava' ? 1.0 : 1.4));
+    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a5a3a, this.theme === 'dark' || this.theme === 'lava' ? 1.25 : 1.4));
     const sun = new THREE.DirectionalLight(this.theme === 'lava' ? 0xffc4a0 : 0xfff1d6, 2.6);
     sun.position.set(-10, 18, 8);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     const sc = sun.shadow.camera;
-    sc.left = -MAP_W / 2 - 1; sc.right = MAP_W / 2 + 1; sc.top = MAP_H / 2 + 3; sc.bottom = -MAP_H / 2 - 3;
-    sc.near = 1; sc.far = 50;
+    sc.left = -MAP_W / 2 - 6; sc.right = MAP_W / 2 + 6; sc.top = MAP_H / 2 + 8; sc.bottom = -MAP_H / 2 - 8;
+    sc.near = 1; sc.far = 70;
     sun.shadow.bias = -0.0005;
     this.scene.add(sun);
   }
@@ -232,6 +270,9 @@ export class StageScreen implements Screen {
     this.sparks[0].meshes[0].geometry.dispose();
     for (const s of this.sparks) (s.meshes[0].material as THREE.Material).dispose();
     this.enemyMaterial.dispose();
+    this.ghostMaterial.dispose();
+    this.border.geometry.dispose();
+    (this.border.material as THREE.Material).dispose();
     for (const m of [this.targetRing, this.rangeRing, this.selectRing, this.rangeDisc]) {
       m.geometry.dispose();
       (m.material as THREE.Material).dispose();
@@ -274,8 +315,17 @@ export class StageScreen implements Screen {
         button(iconLabel('snow-detail-crystal', 'Freeze'), () => this.castFreeze(), ''), this.hud.freeze));
     }
     this.hud.call = button('Start wave', () => this.callWave(), 'green big');
-    this.ui.append(abilities, h('div', { class: 'stage-dock' }, this.hud.call));
-    this.ui.append(h('div', { class: 'build-hint panel white' }, 'Tap a pad to build towers, then start the wave'));
+    this.buildButtons = TOWER_KINDS.map((t, i) => {
+      const b = button(h('span', { style: 'display: contents' },
+        h('img', { src: `models/kenney-td/Previews/${t.weapon}.png`, alt: '' }),
+        h('span', { class: 'bb-name' }, t.name, h('kbd', {}, String(i + 1))),
+        h('span', { class: 'bb-cost' }, h('span', { class: 'coin' }), String(this.sim.buildCost(i as TowerKind)))),
+      () => this.setPlacing(i as TowerKind), 'build-btn');
+      b.title = t.blurb;
+      return b;
+    });
+    this.ui.append(abilities, h('div', { class: 'build-bar' }, ...this.buildButtons), h('div', { class: 'stage-dock' }, this.hud.call));
+    this.ui.append(h('div', { class: 'build-hint panel white' }, 'Pick a tower below and place it on open ground, then start the wave'));
   }
 
   private callWave(): void {
@@ -303,6 +353,8 @@ export class StageScreen implements Screen {
     const call = hud.call!;
     call.style.visibility = sim.canCallWave ? '' : 'hidden';
     if (sim.canCallWave) setText(call, sim.waitingForStart ? 'Start wave' : `Call wave +${sim.earlyCallBonus}`);
+    this.buildButtons.forEach((b, i) => (b.disabled = sim.gold < sim.buildCost(i as TowerKind) && this.placing !== i));
+    if (this.placing !== null && sim.gold < sim.buildCost(this.placing)) this.setPlacing(null);
     if (hud.meteor) setText(hud.meteor, this.cooldowns.meteor > 0 ? `${Math.ceil(this.cooldowns.meteor)}s` : '');
     if (hud.freeze) setText(hud.freeze, this.cooldowns.freeze > 0 ? `${Math.ceil(this.cooldowns.freeze)}s` : '');
     this.panel?.refresh();
@@ -314,6 +366,7 @@ export class StageScreen implements Screen {
     if (this.cooldowns.meteor > 0 || this.finished) return;
     this.armedMeteor = !this.armedMeteor;
     this.closePanel();
+    this.setPlacing(null);
     this.hud.meteor?.parentElement?.classList.toggle('armed', this.armedMeteor);
     this.hud.aim?.remove();
     if (this.armedMeteor) {
@@ -339,14 +392,24 @@ export class StageScreen implements Screen {
     return this.raycaster.ray;
   }
 
-  /** Nearest pad (empty or built) under the pointer; towers are tested as boxes so tall ones are easy to hit. */
+  /** Grid cell under the pointer (on the tile tops), or null off the map. */
+  private pickCell(ray: THREE.Ray): [number, number] | null {
+    this.ground.constant = -TILE_TOP;
+    const hit = ray.intersectPlane(this.ground, this.hit);
+    this.ground.constant = 0;
+    if (!hit) return null;
+    const cx = Math.floor(hit.x + MAP_W / 2), cy = Math.floor(hit.z + MAP_H / 2);
+    return cx >= 0 && cy >= 0 && cx < MAP_W && cy < MAP_H ? [cx, cy] : null;
+  }
+
+  /** Pad under the pointer: built towers are tested as boxes (tall ones are easy to hit), then the ground cell. */
   private pickPad(ray: THREE.Ray): number {
     const { sim } = this;
     let best = -1, bestD = Infinity;
     for (let p = 0; p < sim.padCount; p++) {
-      const top = sim.tKind[p] >= 0 ? sim.tMountY[p] + 0.5 : TILE_TOP + 0.1;
+      if (sim.tKind[p] < 0) continue;
       this.box.min.set(sim.tX[p] - 0.5, 0, sim.tZ[p] - 0.5);
-      this.box.max.set(sim.tX[p] + 0.5, top, sim.tZ[p] + 0.5);
+      this.box.max.set(sim.tX[p] + 0.5, sim.tMountY[p] + 0.5, sim.tZ[p] + 0.5);
       const hit = ray.intersectBox(this.box, this.hit);
       if (hit) {
         const d = hit.distanceToSquared(ray.origin);
@@ -356,13 +419,66 @@ export class StageScreen implements Screen {
         }
       }
     }
-    return best;
+    if (best >= 0) return best;
+    const cell = this.pickCell(ray);
+    return cell ? sim.map.padAt[cell[1] * MAP_W + cell[0]] : -1;
+  }
+
+  // --- Placing mode ---
+
+  /** Picks a tower from the build bar; picking it again (or Esc) cancels. */
+  private setPlacing(kind: TowerKind | null): void {
+    if (kind !== null && (this.placing === kind || this.sim.gold < this.sim.buildCost(kind))) kind = null;
+    this.placing = kind;
+    this.ghostCell = null;
+    this.towerVersionDrawn = -1; // show/hide the open-ground markers
+    if (kind !== null) {
+      this.closePanel();
+      this.armedMeteor = false;
+      this.hud.meteor?.parentElement?.classList.remove('armed');
+    }
+    this.buildButtons.forEach((b, i) => b.classList.toggle('active', i === kind));
+    this.hud.aim?.remove();
+    this.ui.querySelector<HTMLElement>('.build-hint')?.style.setProperty('visibility', kind !== null ? 'hidden' : 'visible');
+    if (kind !== null) {
+      const touch = matchMedia('(pointer: coarse)').matches;
+      this.hud.aim = h('div', { class: 'aim-hint panel white title' },
+        touch ? `Tap open ground to place the ${TOWER_KINDS[kind].name}, tap again to confirm` : `Click open ground to place the ${TOWER_KINDS[kind].name} · Shift keeps placing · Esc cancels`);
+      this.ui.append(this.hud.aim);
+    }
+  }
+
+  private padAtCell(cell: [number, number] | null): number {
+    return cell ? this.sim.map.padAt[cell[1] * MAP_W + cell[0]] : -1;
+  }
+
+  private canPlace(cell: [number, number] | null): boolean {
+    const pad = this.padAtCell(cell);
+    return this.placing !== null && pad >= 0 && this.sim.tKind[pad] < 0 && this.sim.gold >= this.sim.buildCost(this.placing);
+  }
+
+  /** Builds at `cell`; returns false (with a buzz) when the spot is blocked or gold is short. */
+  private placeAt(cell: [number, number], keepPlacing: boolean): void {
+    const kind = this.placing!;
+    if (!this.canPlace(cell)) {
+      sfx('tap-b', 0.4);
+      return;
+    }
+    this.sim.build(this.padAtCell(cell), kind);
+    this.towerChanged('built');
+    if (!keepPlacing || this.sim.gold < this.sim.buildCost(kind)) this.setPlacing(null);
   }
 
   private handleHover(e: PointerEvent): void {
-    if (this.mode.kind !== 'campaign' || e.pointerType === 'touch') return;
-    this.hoveredPad = this.armedMeteor || this.finished ? -1 : this.pickPad(this.rayFrom(e));
-    this.game.app.canvas.style.cursor = this.hoveredPad >= 0 || this.armedMeteor ? 'pointer' : '';
+    if (this.mode.kind !== 'campaign' || e.pointerType === 'touch' || this.finished) return;
+    const ray = this.rayFrom(e);
+    if (this.placing !== null) {
+      this.ghostCell = this.pickCell(ray);
+      this.hoveredPad = -1;
+    } else {
+      this.hoveredPad = this.armedMeteor ? -1 : this.pickPad(ray);
+    }
+    this.game.app.canvas.style.cursor = this.hoveredPad >= 0 || this.armedMeteor || this.placing !== null ? 'pointer' : '';
   }
 
   /** A click is a press and release without dragging the camera. */
@@ -372,6 +488,20 @@ export class StageScreen implements Screen {
     if (!press || this.mode.kind !== 'campaign' || this.finished) return;
     if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6 || performance.now() - press.t > 500) return;
     const ray = this.rayFrom(e);
+
+    if (this.placing !== null) {
+      const cell = this.pickCell(ray);
+      if (!cell) return;
+      // Touch has no hover: the first tap shows the ghost and range, a second tap on the same cell builds.
+      const same = this.ghostCell && this.ghostCell[0] === cell[0] && this.ghostCell[1] === cell[1];
+      if (e.pointerType === 'touch' && !same) {
+        this.ghostCell = cell;
+        return;
+      }
+      this.ghostCell = cell;
+      this.placeAt(cell, e.shiftKey);
+      return;
+    }
 
     if (this.armedMeteor) {
       const m = this.mods.meteor!;
@@ -396,12 +526,15 @@ export class StageScreen implements Screen {
     if (this.mode.kind !== 'campaign' || this.finished) return;
     if (e.key === 'Escape') {
       if (this.armedMeteor) this.armMeteor();
+      this.setPlacing(null);
       this.closePanel();
     } else if (e.key === ' ' && this.sim.canCallWave) {
       e.preventDefault();
       this.callWave();
-    } else {
-      this.panel?.handleKey(e.key);
+    } else if (this.panel) {
+      this.panel.handleKey(e.key);
+    } else if (['1', '2', '3'].includes(e.key)) {
+      this.setPlacing((Number(e.key) - 1) as TowerKind);
     }
   }
 
@@ -468,14 +601,17 @@ export class StageScreen implements Screen {
     this.fitCamera(width, height);
   }
 
-  /** Pulls the camera back until all four map corners are on screen, clear of the HUD. */
+  /**
+   * Frames the play area: the whole map on wide screens, closer on phones
+   * (pan to see the rest). Mountains fill whatever lies beyond the map.
+   */
   private fitCamera(width: number, height: number): void {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.controls.target.set(0, 0, 0);
     const corners = [-1, 1].flatMap((sx) => [-1, 1].map((sz) => new THREE.Vector3((sx * MAP_W) / 2, 0, (sz * MAP_H) / 2)));
     const ndc = new THREE.Vector3();
-    const bottom = -1 + (2 * 90) / height;
+    const bottom = -1 + (2 * 100) / height;
     const top = 1 - (2 * 70) / height;
     const fits = (dist: number) => {
       this.camera.position.copy(this.viewDir).multiplyScalar(dist);
@@ -492,9 +628,13 @@ export class StageScreen implements Screen {
       if (fits(mid)) hi = mid;
       else lo = mid;
     }
-    fits(hi);
+    // Portrait phones would show the whole map tiny; start about 60% of its width across instead.
+    const dist = this.camera.aspect < 0.8 ? hi * 0.58 : hi;
+    fits(dist);
+    this.controls.maxDistance = hi * 1.15;
     const sky = THEME_SKY[this.theme];
-    this.scene.fog = new THREE.Fog(sky, hi + 8, hi + 40);
+    // Distant peaks fade into the sky rather than ending at a hard edge.
+    this.scene.fog = new THREE.Fog(sky, hi + BORDER * 1.4, hi + BORDER * 4);
   }
 
   /** Screen position of a world point (for pinning DOM to the map). */
@@ -538,6 +678,7 @@ export class StageScreen implements Screen {
     this.syncInstances(time);
     this.syncSelection(time);
     this.controls.update();
+    this.clampTarget();
     if (steps > 0) this.perf.simMs = this.perf.simMs * 0.9 + ((s1 - s0) / steps) * 0.1;
     this.perf.cpuMs = this.perf.cpuMs * 0.9 + (performance.now() - s0) * 0.1;
 
@@ -545,6 +686,18 @@ export class StageScreen implements Screen {
       this.updateHud();
       this.panel?.place();
       if (this.sim.status !== 'running') this.finish();
+    }
+  }
+
+  /** Keeps the camera looking at the play area while panning. */
+  private clampTarget(): void {
+    const t = this.controls.target;
+    const cx = THREE.MathUtils.clamp(t.x, -MAP_W / 2, MAP_W / 2);
+    const cz = THREE.MathUtils.clamp(t.z, -MAP_H / 2, MAP_H / 2);
+    if (cx !== t.x || cz !== t.z) {
+      this.camera.position.x += cx - t.x;
+      this.camera.position.z += cz - t.z;
+      t.set(cx, t.y, cz);
     }
   }
 
@@ -564,7 +717,8 @@ export class StageScreen implements Screen {
     for (let p = 0; p < sim.padCount; p++) {
       const kind = sim.tKind[p];
       if (kind < 0) {
-        this.pads.set(emptyPads++, sim.tX[p], TILE_TOP, sim.tZ[p], 0, 0.9);
+        // Open-ground markers only while placing; otherwise the whole map would be brackets.
+        if (this.placing !== null) this.pads.set(emptyPads++, sim.tX[p], TILE_TOP, sim.tZ[p], 0, 0.72);
         continue;
       }
       const { y: dy, scale } = this.animOffset(p);
@@ -639,6 +793,32 @@ export class StageScreen implements Screen {
   /** Selection ring on the open (or hovered) pad, plus a range preview for its tower or the build option hovered. */
   private syncSelection(time: number): void {
     const { sim } = this;
+    const discMat = this.rangeDisc.material as THREE.MeshBasicMaterial;
+    const ringMat = this.rangeRing.material as THREE.MeshBasicMaterial;
+    this.ghosts.forEach((g, k) => (g.visible = this.placing === k && this.ghostCell !== null));
+
+    if (this.placing !== null) {
+      // Placing: ghost tower + its range, green where it can go and red where it can't.
+      this.selectRing.visible = false;
+      const cell = this.ghostCell;
+      this.rangeDisc.visible = this.rangeRing.visible = cell !== null;
+      if (!cell) return;
+      const ok = this.canPlace(cell);
+      const [x, z] = cellToWorld(cell[0], cell[1]);
+      this.ghosts[this.placing].position.set(x, TILE_TOP + Math.sin(time * 6) * 0.03, z);
+      this.ghostMaterial.color.setHex(ok ? 0xffffff : 0xff6a6a);
+      discMat.color.setHex(ok ? 0x8dffb0 : 0xff6a6a);
+      ringMat.color.setHex(ok ? 0xffffff : 0xff6a6a);
+      const range = sim.statsFor(this.placing, 1).range;
+      for (const m of [this.rangeDisc, this.rangeRing]) {
+        m.position.set(x, TILE_TOP + 0.04, z);
+        m.scale.setScalar(range);
+      }
+      return;
+    }
+    discMat.color.setHex(0xffffff);
+    ringMat.color.setHex(0xffffff);
+
     const pad = this.panel?.pad ?? this.hoveredPad;
     const selected = this.panel !== null;
     this.selectRing.visible = pad >= 0;
@@ -653,7 +833,7 @@ export class StageScreen implements Screen {
     const kind = sim.tKind[pad];
     const range = this.previewKind !== null
       ? sim.statsFor(this.previewKind, kind >= 0 ? Math.min(3, sim.tLevel[pad] + 1) : 1).range
-      : selected && kind >= 0 ? sim.tRange[pad] : 0;
+      : kind >= 0 ? sim.tRange[pad] : 0;
     this.rangeDisc.visible = this.rangeRing.visible = range > 0;
     if (range > 0) {
       for (const m of [this.rangeDisc, this.rangeRing]) {

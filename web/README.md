@@ -41,12 +41,20 @@ Greenhollow, Sunscar Dunes, Frostpeak, Emberforge and Umbral Spire.
 | Commander | Fortified Base (+2 lives), Bounty Hunter (+10% crystals), Sharpshooter (+4% double-damage chance), War Chest (+30 starting gold), Engineering (−4% build/upgrade cost), Salvage Crew (+8% sell refund), Quick Hands (−8% ability cooldown) |
 | Abilities | Meteor Strike (tap the map for area damage) and Deep Freeze (slows every enemy): unlock, then 3 power levels |
 
-**Stage (battle).** You start with gold and empty build pads (the yellow brackets).
-The first wave waits until you press **Start wave**.
+**Stage (battle).** The play area is ringed by mountains themed to the area, with
+passes where the road comes in and goes out, so the map fills the screen. On phones
+the camera starts closer. Drag (one finger) pans, right-drag (two fingers) rotates,
+and the wheel (pinch) zooms. You start with gold, and the first wave waits until you
+press **Start wave**.
 
-- **Build:** tap a pad and pick Cannon (100), Ballista (80) or Turret (65). Hotkeys
-  are 1, 2 and 3. Hovering an option previews its range on the map. New towers rise
-  out of the ground in a puff of dust.
+- **Build anywhere open:** towers go on any tile that isn't road or covered by
+  trees, rocks or crystals. Tiles next to the road are always open.
+- **Placing mode:** pick Cannon (100), Ballista (80) or Turret (65) in the build
+  bar, or press 1, 2 or 3. A see-through ghost tower and its range circle follow the
+  pointer, green where it can go and red where it can't, and brackets mark every
+  open tile. Click to build; Shift keeps placing, Esc cancels. On touch, the first
+  tap shows the ghost and range, and a second tap on the same tile builds. Tapping
+  an open tile outside placing mode opens a quick build menu with range previews.
 - **Upgrade:** tap a tower for its panel. It shows current → next damage, range and
   fire rate. Towers go up to level 3, and each level changes the tower's model
   stack. Hotkey: U.

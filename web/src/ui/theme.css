@@ -163,12 +163,12 @@ button { font: inherit; color: inherit; }
 .stage-top .panel { display: flex; align-items: center; gap: 8px; font: 16px var(--title); min-height: 28px; font-variant-numeric: tabular-nums; }
 .stage-top .heart { width: 22px; height: 22px; background: url('/ui/kenney-ui/PNG/Red/Default/icon_circle.png') center / 14px no-repeat; }
 .stage-top .label { font: 12px var(--body); color: var(--ink-soft); }
-.abilities { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; }
+.abilities { position: absolute; bottom: 12px; left: 12px; display: flex; flex-direction: column; gap: 6px; z-index: 3; }
 .ability { position: relative; }
 .ability .btn { min-width: 132px; }
 .ability .cd { position: absolute; inset: 0 0 4px; display: grid; place-items: center; font: 15px var(--title); color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); pointer-events: none; }
 .ability.armed .btn { filter: brightness(1.15) saturate(1.2); }
-.aim-hint { position: absolute; top: 70px; left: 50%; transform: translateX(-50%); }
+.aim-hint { position: absolute; top: 74px; left: 50%; transform: translateX(-50%); font-size: 12px; white-space: nowrap; z-index: 3; }
 
 .results { width: min(86vw, 380px); text-align: center; }
 .results h2 { font-size: 28px; }
@@ -187,7 +187,8 @@ button { font: inherit; color: inherit; }
 .stage-top .stage-name { flex-direction: column; align-items: flex-start; gap: 0; }
 .stage-top .stage-name .title { font-size: 14px; }
 .stage-dock { position: absolute; bottom: 12px; right: 12px; z-index: 3; }
-.build-hint { position: absolute; top: 74px; left: 50%; transform: translateX(-50%); font: 13px var(--title); white-space: nowrap; animation: bob 1.6s ease-in-out infinite; }
+/* Centred with margins, not a transform: the bob animation owns `transform`. */
+.build-hint { position: absolute; top: 74px; left: 0; right: 0; margin: 0 auto; width: max-content; max-width: calc(100% - 32px); box-sizing: border-box; font: 13px var(--title); text-align: center; animation: bob 1.6s ease-in-out infinite; }
 .float-text { position: absolute; transform: translate(-50%, -100%); font: 16px var(--title); color: #e0a020; text-shadow: 0 1px 0 #fff, 0 2px 4px rgba(0, 0, 0, 0.3); animation: float-up 1.2s ease-out forwards; pointer-events: none; }
 @keyframes float-up { to { transform: translate(-50%, -260%); opacity: 0; } }
 
@@ -217,6 +218,16 @@ kbd { font: 10px var(--title); color: var(--ink-soft); border: 1px solid #c8cfd8
 .pop-actions { display: flex; gap: 6px; }
 .pop-actions .btn { flex: 1; }
 .tower-pop .label { font-size: 12px; color: var(--ink-soft); }
+
+/* Build bar: pick a tower, then place it on open ground. */
+.build-bar { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; z-index: 3; }
+.build-btn { height: 64px; min-width: 112px; display: grid; grid-template-columns: 30px auto; grid-template-areas: 'img name' 'img cost'; gap: 0 6px; justify-items: start; }
+.build-btn:active:not(:disabled) { height: 60px; }
+.build-btn img { grid-area: img; width: 30px; height: 30px; }
+.build-btn .bb-name { grid-area: name; display: flex; gap: 4px; align-items: center; font-size: 13px; }
+.build-btn .bb-name kbd { color: rgba(255, 255, 255, 0.8); border-color: rgba(255, 255, 255, 0.5); }
+.build-btn .bb-cost { grid-area: cost; display: flex; gap: 4px; align-items: center; font-size: 13px; }
+.build-btn.active .bb-name kbd { color: var(--ink-soft); border-color: #c8cfd8; }
 
 /* --- Perf stats panel (bench mode) --- */
 .stats { position: absolute; top: 70px; left: 10px; min-width: 230px; }
@@ -254,10 +265,16 @@ kbd { font: 10px var(--title); color: var(--ink-soft); border: 1px solid #c8cfd8
   .bench-controls { width: calc(100% - 32px); flex-wrap: wrap; justify-content: center; }
   .bench-controls .row { flex-wrap: wrap; justify-content: center; height: auto; }
   .abilities .btn { min-width: 0; }
-  .abilities { left: 12px; transform: none; }
+  .abilities { bottom: 92px; flex-direction: row; }
+  .ability .btn { min-width: 0; }
+  .stage-dock { bottom: 92px; }
+  .build-bar { left: 8px; right: 8px; transform: none; }
+  .build-bar .build-btn { flex: 1; min-width: 0; padding: 0 4px; }
+  .build-btn .bb-name kbd { display: none; }
+  .aim-hint { white-space: normal; width: calc(100% - 32px); box-sizing: border-box; text-align: center; top: 118px; }
   .stage-top .stage-name { display: none; }
   .stage-top { transform: scale(0.85); transform-origin: top left; flex-wrap: wrap; width: calc((100vw - 150px) / 0.85); }
-  .build-hint { top: 118px; font-size: 11px; white-space: normal; text-align: center; width: calc(100% - 32px); box-sizing: border-box; }
+  .build-hint { top: 118px; font-size: 11px; }
   .shop .cards { grid-template-columns: 1fr; }
   .btn { font-size: 12px; }
 }

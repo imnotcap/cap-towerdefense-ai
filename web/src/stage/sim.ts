@@ -59,8 +59,6 @@ export interface SimConfig {
   mountY: (kind: TowerKind, level: number) => number;
   /** Null runs the endless stress test: a fixed population that recycles at the base. */
   waves: WaveConfig | null;
-  /** Fill every pad with a tower up front (stress test). */
-  prebuilt?: boolean;
 }
 
 export type SimStatus = 'running' | 'won' | 'lost';
@@ -203,11 +201,6 @@ export class Sim {
       this.tZ[i] = z;
       this.tYaw[i] = this.rand() * Math.PI * 2;
     });
-    if (config.prebuilt) {
-      for (let i = 0; i < pads; i++) this.place(i, (i % TOWER_KINDS.length) as TowerKind);
-      this.events.length = 0;
-    }
-
     this.waitingForStart = config.waves !== null;
   }
 

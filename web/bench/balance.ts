@@ -45,7 +45,7 @@ function spend(sim: Sim, order: number[]): void {
 function play(stageIdx: number, difficulty: Difficulty, shop: number) {
   const stage = STAGES[stageIdx];
   const mods = loadout(shop).modifiers();
-  const sim = new Sim(buildMap(PATH_LAYOUTS[stage.layout]), 4000, {
+  const sim = new Sim(buildMap(PATH_LAYOUTS[stage.layout], stage.seed), 4000, {
     weapons: mods.weapons, critChance: mods.critChance, hpScale: stage.hpScale * DIFFICULTY[difficulty].hp,
     speedScale: stage.speedScale, lives: mods.lives, startGold: stage.startGold + mods.bonusGold, costScale: mods.costScale,
     sellRefund: mods.sellRefund, mountY: () => 1.3, waves: stage.waves,

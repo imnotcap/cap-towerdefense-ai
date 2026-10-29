@@ -3,7 +3,7 @@ import { App } from './engine/app';
 import { loadModels } from './engine/assets';
 import { SNOW_VARIANTS, Themes } from './engine/themes';
 import type { Game } from './game';
-import type { StageDef } from './meta/catalog';
+import { STAGES, type StageDef } from './meta/catalog';
 import { Profile } from './meta/profile';
 import { attachBenchHud } from './stage/bench-hud';
 import { DECOR, GROUND_TILES, PATH_TILES } from './stage/map';
@@ -44,8 +44,8 @@ async function main() {
     },
   };
 
-  // Console/test access: window.__game.app.screen…
-  if (params.has('debug')) (window as unknown as { __game: Game }).__game = game;
+  // Console/test access: window.__game.app.screen…, window.__stages
+  if (params.has('debug')) Object.assign(window, { __game: game, __stages: STAGES });
 
   if (params.has('bench')) {
     // Endless stress test with the perf panel; used by bench/run.mjs.
