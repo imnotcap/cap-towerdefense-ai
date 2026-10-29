@@ -98,7 +98,7 @@ tests), rendering reads sim state only.
 
 | Phase | Deliverable | Exit criteria |
 |---|---|---|
-| 0. Spike (1 wk) | Rust+Bevy→WASM page with instanced animated mesh, 1k enemies | 60 fps on mid laptop; gz size measured; stack confirmed |
+| 0. Spike (1 wk) | Rust+Bevy→WASM page with instanced animated mesh, 1k enemies | 60 fps on mid laptop; gz size measured; stack confirmed. **Status:** TS/three.js baseline done (`spike/`, see its README); Rust spike blocked on crates.io access; GPU numbers pending real hardware |
 | 1. Core sim (2 wk) | `td_core`: grid, flow-field, waves, 3 towers, tests; debug top-view | Headless sim test clears a sample wave set |
 | 2. Stage vertical slice (3 wk) | Greenhollow stage 1 fully playable with PBR models, animations, HUD, SFX | Fun, stable 60 fps, <10 MB initial |
 | 3. World map (2 wk) | 3D map, area fly-to, stage select, save/progress, fog-locked areas | Navigate all 5 areas (placeholder stages) |
@@ -121,7 +121,11 @@ tests), rendering reads sim state only.
 | Art workload (semi-realistic models) | Shared kit-bash props, palette-swapped enemies per area, CC0 asset starting point |
 | Mobile thermals | Quality presets, 30 fps cap option, fewer shadows/particles |
 
-## 8. Open questions
-1. Asset source: buy/CC0 packs vs. custom Blender work?
+## 8. Assets in use
+- `assets/models/kenney-td/` – Kenney Tower Defense Kit 2.1 (CC0): tiles, towers, weapons, UFO enemies, snow variants.
+- `assets/ui/kenney-ui/` – Kenney UI Pack 2.0 (CC0): main UI theme (9-slice panels/buttons, Kenney Future font, click sounds).
+
+## 9. Open questions
+1. Asset source beyond Kenney: the kit is stylised low-poly without skeletal animation; semi-realistic art needs custom/purchased skinned models.
 2. Mobile as a first-class target, or desktop-first with touch later?
 3. Any backend (leaderboards, cloud saves) in v1, or fully offline?
