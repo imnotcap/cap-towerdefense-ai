@@ -10,6 +10,10 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
+**Play it online:** https://imnotcap.github.io/cap-towerdefense-ai/ (GitHub Pages). Every
+push to `main` or `claude/hopeful-darwin-dj148x` rebuilds the site
+(`.github/workflows/pages.yml` publishes `web/dist` to the `gh-pages` branch).
+
 URL options: `?webgl` forces the WebGL2 backend, `?noshadow` turns shadows off,
 `?debug` exposes `window.__game` (profile, current screen, sim), `?notitle` skips the
 title screen, and `?bench&n=5000` opens the perf stress test.

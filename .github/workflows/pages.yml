@@ -1,0 +1,40 @@
+# Builds the web app and publishes web/dist to the gh-pages branch, which GitHub Pages
+# serves at https://imnotcap.github.io/cap-towerdefense-ai/
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main, claude/hopeful-darwin-dj148x]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+      - name: Publish to gh-pages
+        working-directory: web/dist
+        run: |
+          touch .nojekyll
+          git init -q -b gh-pages
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Deploy ${GITHUB_SHA::7} from ${GITHUB_REF_NAME}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
