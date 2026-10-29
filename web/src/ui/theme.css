@@ -1,0 +1,220 @@
+/* Main UI theme: Kenney UI Pack (CC0). Panels and buttons are 9-sliced from the @2x "Double" PNGs. */
+/* The Kenney fonts draw "%" like an "X"; leave it to the fallback font. */
+@font-face { font-family: 'Kenney Future'; src: url('/ui/kenney-ui/Font/Kenney Future.ttf') format('truetype'); font-display: block; unicode-range: U+0000-0024, U+0026-FFFF; }
+@font-face { font-family: 'Kenney Future Narrow'; src: url('/ui/kenney-ui/Font/Kenney Future Narrow.ttf') format('truetype'); font-display: block; unicode-range: U+0000-0024, U+0026-FFFF; }
+
+:root {
+  --ink: #2b3a4a;
+  --ink-soft: #6b7c8f;
+  --gold: #e0a020;
+  --title: 'Kenney Future', system-ui, sans-serif;
+  --body: 'Kenney Future Narrow', system-ui, sans-serif;
+}
+
+html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc6e6; font-family: var(--body); color: var(--ink); }
+canvas { display: block; touch-action: none; }
+button { font: inherit; color: inherit; }
+#ui { position: fixed; inset: 0; pointer-events: none; }
+#ui > * { pointer-events: none; }
+#ui .interactive, #ui button, #ui .modal { pointer-events: auto; }
+
+/* --- 9-slice primitives --- */
+.panel {
+  border-style: solid; border-width: 12px 12px 16px;
+  border-image: url('/ui/kenney-ui/PNG/Grey/Double/button_square_depth_flat.png') 24 24 32 fill / 12px 12px 16px;
+  padding: 2px 6px;
+}
+.panel.white {
+  border-width: 12px;
+  border-image: url('/ui/kenney-ui/PNG/Extra/Double/input_rectangle.png') 24 fill / 12px;
+}
+
+.btn {
+  --face: url('/ui/kenney-ui/PNG/Blue/Double/button_rectangle_depth_gradient.png');
+  --pressed: url('/ui/kenney-ui/PNG/Blue/Double/button_rectangle_gradient.png');
+  cursor: pointer; background: none; padding: 0 10px; min-width: 64px; height: 44px; line-height: 16px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;
+  border-style: solid; border-width: 12px 12px 16px;
+  border-image: var(--face) 24 24 32 fill / 12px 12px 16px;
+  color: #fff; font-family: var(--title); font-size: 14px; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  transition: filter 0.1s;
+}
+.btn:hover:not(:disabled) { filter: brightness(1.08); }
+/* Pressed: swap to the flat sprite and drop by the depth so the button "sinks". */
+.btn:active:not(:disabled) { border-image: var(--pressed) 24 fill / 12px; border-width: 12px; height: 40px; margin-top: 4px; }
+.btn.yellow, .btn.active {
+  --face: url('/ui/kenney-ui/PNG/Yellow/Double/button_rectangle_depth_gradient.png');
+  --pressed: url('/ui/kenney-ui/PNG/Yellow/Double/button_rectangle_gradient.png');
+  color: var(--ink); text-shadow: none;
+}
+.btn.green {
+  --face: url('/ui/kenney-ui/PNG/Green/Double/button_rectangle_depth_gradient.png');
+  --pressed: url('/ui/kenney-ui/PNG/Green/Double/button_rectangle_gradient.png');
+}
+.btn.red {
+  --face: url('/ui/kenney-ui/PNG/Red/Double/button_rectangle_depth_gradient.png');
+  --pressed: url('/ui/kenney-ui/PNG/Red/Double/button_rectangle_gradient.png');
+}
+.btn.grey, .btn:disabled {
+  --face: url('/ui/kenney-ui/PNG/Grey/Double/button_rectangle_depth_flat.png');
+  --pressed: url('/ui/kenney-ui/PNG/Grey/Double/button_rectangle_flat.png');
+  color: var(--ink-soft); text-shadow: none;
+}
+.btn:disabled { cursor: default; }
+.btn.small { height: 36px; min-width: 0; font-size: 12px; padding: 0 6px; }
+.btn.small:active:not(:disabled) { height: 32px; }
+.btn.big { height: 56px; font-size: 18px; padding: 0 22px; }
+.btn.big:active:not(:disabled) { height: 52px; }
+.btn.round {
+  /* Circles can't be 9-sliced; draw the round sprites as a plain background. */
+  --round: url('/ui/kenney-ui/PNG/Blue/Double/button_round_depth_gradient.png');
+  --round-pressed: url('/ui/kenney-ui/PNG/Blue/Double/button_round_gradient.png');
+  min-width: 0; width: 44px; height: 46px; padding: 0 0 4px; border: 0; border-image: none;
+  background: var(--round) center / 100% 100% no-repeat;
+}
+.btn.round:active:not(:disabled) { border: 0; border-image: none; background-image: var(--round-pressed); height: 42px; margin-top: 4px; padding: 0; }
+.btn img { width: 22px; height: 22px; object-fit: contain; filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.2)); }
+
+.crystal { display: inline-block; width: 18px; height: 18px; background: url('/models/kenney-td/Previews/detail-crystal.png') center / 150% no-repeat; vertical-align: -3px; }
+.star-icon { display: inline-block; width: 16px; height: 15px; background: url('/ui/kenney-ui/PNG/Yellow/Default/star.png') center / contain no-repeat; }
+.star-icon.empty { background-image: url('/ui/kenney-ui/PNG/Grey/Default/star.png'); opacity: 0.8; }
+.title { font-family: var(--title); letter-spacing: 0.03em; }
+.divider { height: 2px; margin: 6px 0; background: url('/ui/kenney-ui/PNG/Extra/Default/divider.png') center / 100% 2px no-repeat; opacity: 0.6; }
+
+/* --- Resource bar (top right) --- */
+.resources { position: absolute; top: 10px; right: 10px; display: flex; gap: 8px; z-index: 3; }
+.resources .panel { display: flex; align-items: center; gap: 8px; font: 17px var(--title); font-variant-numeric: tabular-nums; min-width: 70px; justify-content: space-between; }
+.resources .crystal { width: 26px; height: 26px; }
+.resources .star-icon { width: 24px; height: 22px; }
+
+/* --- Modal --- */
+.backdrop { position: absolute; inset: 0; z-index: 10; background: rgba(20, 30, 45, 0.45); display: grid; place-items: center; pointer-events: auto; animation: fade 0.15s ease-out; }
+.modal { max-width: min(92vw, 720px); max-height: calc(100vh - 40px); overflow: auto; animation: pop 0.18s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.modal h2 { margin: 0; font: 20px var(--title); }
+.modal .sub { color: var(--ink-soft); font-size: 14px; margin: 4px 0 0; }
+.modal .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: flex-start; flex-wrap: wrap; margin-top: 12px; }
+@keyframes fade { from { opacity: 0; } }
+@keyframes pop { from { transform: scale(0.9); opacity: 0; } }
+
+/* --- World map --- */
+.world-title { position: absolute; top: 10px; left: 10px; z-index: 3; }
+.world-title h1 { margin: 0; font: 20px var(--title); }
+.world-title p { margin: 2px 0 0; font-size: 13px; color: var(--ink-soft); }
+.world-dock { position: absolute; bottom: 12px; right: 12px; display: flex; gap: 8px; align-items: flex-end; z-index: 3; }
+.world-hint { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); color: #fff; font-size: 13px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); white-space: nowrap; }
+
+.marker { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; gap: 1px; will-change: transform; }
+.marker { z-index: 1; }
+.marker .btn.round { width: 34px; height: 36px; font-size: 13px; }
+.marker .btn.round:active:not(:disabled) { height: 32px; }
+.marker.cleared .btn.round {
+  --round: url('/ui/kenney-ui/PNG/Yellow/Double/button_round_depth_gradient.png');
+  --round-pressed: url('/ui/kenney-ui/PNG/Yellow/Double/button_round_gradient.png');
+  color: var(--ink); text-shadow: none;
+}
+.marker.locked .btn.round {
+  --round: url('/ui/kenney-ui/PNG/Grey/Double/button_round_depth_flat.png');
+  --round-pressed: url('/ui/kenney-ui/PNG/Grey/Double/button_round_flat.png');
+  color: var(--ink-soft); text-shadow: none;
+}
+.marker.frontier .btn.round { animation: bob 1.2s ease-in-out infinite; }
+.marker .stars { display: flex; gap: 1px; }
+.marker .stars .star-icon { width: 12px; height: 11px; }
+@keyframes bob { 50% { transform: translateY(-5px); } }
+
+.banner { position: absolute; left: 0; top: 0; z-index: 2; transform: translate(-50%, -50%); text-align: center; white-space: nowrap; cursor: pointer; will-change: transform; }
+.banner .panel { padding: 0 8px; }
+.banner .name { font: 14px var(--title); }
+.banner .meta { font-size: 12px; color: var(--ink-soft); display: flex; gap: 4px; align-items: center; justify-content: center; }
+.banner.locked { opacity: 0.85; }
+.banner.locked .name::before { content: '\1F512\FE0E  '; font-family: system-ui; }
+
+.stage-card { width: min(86vw, 380px); }
+.stage-card .area { font-size: 13px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.06em; }
+.stage-card .stars { display: flex; gap: 4px; margin: 8px 0; }
+.stage-card .stars .star-icon { width: 30px; height: 28px; }
+.stage-card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 8px 0 0; font-size: 14px; }
+.stage-card dt { color: var(--ink-soft); }
+.stage-card dd { margin: 0; text-align: right; }
+.segmented { display: flex; gap: 4px; margin-top: 10px; }
+.segmented .btn { flex: 1; }
+
+/* --- Shop --- */
+.shop { width: min(94vw, 760px); }
+.shop header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.shop .tabs { display: flex; gap: 6px; margin: 10px 0 2px; flex-wrap: wrap; height: auto; }
+.shop .group { margin-top: 10px; }
+.shop .group h3 { margin: 0 0 4px; font: 14px var(--title); color: var(--ink-soft); }
+.shop .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
+.card { display: grid; grid-template-columns: 48px 1fr auto; grid-template-areas: 'img name buy' 'img effect buy' 'img pips buy'; gap: 2px 8px; align-items: center; }
+.card img { grid-area: img; width: 48px; height: 48px; object-fit: contain; }
+.card .name { grid-area: name; font: 14px var(--title); }
+.card .effect { grid-area: effect; font-size: 13px; color: var(--ink-soft); min-height: 1.2em; }
+.card .effect .next { color: #1e9e5a; }
+.card .pips { grid-area: pips; }
+.card .btn { grid-area: buy; }
+.pips { display: flex; gap: 3px; }
+.pip { width: 14px; height: 14px; background: url('/ui/kenney-ui/PNG/Grey/Default/check_square_grey.png') center / contain no-repeat; }
+.pip.on { background-image: url('/ui/kenney-ui/PNG/Yellow/Default/check_square_color.png'); }
+.card .btn.small { min-width: 66px; }
+
+/* --- Stage HUD --- */
+.stage-top { position: absolute; top: 10px; left: 10px; display: flex; gap: 8px; align-items: flex-start; }
+.stage-top .panel { display: flex; align-items: center; gap: 8px; font: 16px var(--title); min-height: 28px; font-variant-numeric: tabular-nums; }
+.stage-top .heart { width: 22px; height: 22px; background: url('/ui/kenney-ui/PNG/Red/Default/icon_circle.png') center / 14px no-repeat; }
+.stage-top .label { font: 12px var(--body); color: var(--ink-soft); }
+.abilities { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; }
+.ability { position: relative; }
+.ability .btn { min-width: 132px; }
+.ability .cd { position: absolute; inset: 0 0 4px; display: grid; place-items: center; font: 15px var(--title); color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); pointer-events: none; }
+.ability.armed .btn { filter: brightness(1.15) saturate(1.2); }
+.aim-hint { position: absolute; top: 70px; left: 50%; transform: translateX(-50%); }
+
+.results { width: min(86vw, 380px); text-align: center; }
+.results h2 { font-size: 28px; }
+.results .stars { display: flex; justify-content: center; gap: 6px; margin: 12px 0; }
+.results .stars .star-icon { width: 52px; height: 48px; animation: pop 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) backwards; }
+.results .stars .star-icon:nth-child(2) { animation-delay: 0.15s; }
+.results .stars .star-icon:nth-child(3) { animation-delay: 0.3s; }
+.results .reward { font: 20px var(--title); display: flex; gap: 6px; justify-content: center; align-items: center; }
+.results .actions { justify-content: center; }
+
+/* --- Perf stats panel (bench mode) --- */
+.stats { position: absolute; top: 70px; left: 10px; min-width: 230px; }
+.stats h1 { margin: 0 0 6px; font: 13px var(--title); letter-spacing: 0.04em; }
+.stats dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 0; font-size: 13px; }
+.stats dt { color: var(--ink-soft); }
+.stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.stats dd.good { color: #1e9e5a; } .stats dd.warn { color: #c98a00; } .stats dd.bad { color: #d2343f; }
+.bench-controls { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; }
+.bench-controls .label { font: 12px var(--title); padding: 0 6px; }
+.bench-controls .row { display: flex; gap: 6px; height: 48px; align-items: flex-start; }
+
+/* --- Loading screen --- */
+#loading { position: fixed; inset: 0; display: grid; place-items: center; background: #2d9be0; color: #fff; z-index: 10; transition: opacity 0.4s; }
+#loading.done { opacity: 0; pointer-events: none; }
+#loading .box { display: grid; gap: 18px; justify-items: center; }
+#loading h2 { margin: 0; font: 34px var(--title); text-shadow: 0 3px 0 #1b6fa8; text-align: center; }
+#loading .bar { width: 300px; height: 14px; padding: 2px; border-style: solid; border-width: 10px 10px 14px;
+                border-image: url('/ui/kenney-ui/PNG/Grey/Double/button_rectangle_depth_flat.png') 24 24 32 fill / 10px 10px 14px; }
+#loading .fill { height: 100%; width: 0; min-width: 14px; box-sizing: border-box; border-style: solid; border-width: 7px;
+                 border-image: url('/ui/kenney-ui/PNG/Yellow/Double/button_rectangle_flat.png') 24 fill / 7px; transition: width 0.15s; }
+#loading .msg { font-size: 14px; opacity: 0.9; }
+
+/* Screen fade between scenes. */
+#fade { position: fixed; inset: 0; background: #2d9be0; opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 5; }
+#fade.on { opacity: 1; }
+
+@media (max-width: 640px) {
+  .stats { transform: scale(0.68); transform-origin: top left; }
+  .resources { transform: scale(0.85); transform-origin: top right; }
+  .world-title { transform: scale(0.85); transform-origin: top left; }
+  .world-title p { display: none; }
+  .resources .panel { min-width: 0; }
+  .world-hint { display: none; }
+  .bench-controls { width: calc(100% - 32px); flex-wrap: wrap; justify-content: center; }
+  .bench-controls .row { flex-wrap: wrap; justify-content: center; height: auto; }
+  .abilities .btn { min-width: 0; }
+  .shop .cards { grid-template-columns: 1fr; }
+  .btn { font-size: 12px; }
+}
